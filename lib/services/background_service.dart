@@ -66,7 +66,7 @@ class BackgroundLocationService {
       'location_tracking',
       frequency: const Duration(minutes: 15),
       constraints: Constraints(
-        networkType: NetworkType.not_required,
+        networkType: NetworkType.notRequired,
       ),
     );
 

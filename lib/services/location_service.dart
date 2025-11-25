@@ -151,7 +151,7 @@ class LocationService {
         frequency: const Duration(minutes: 15), // Minimum for WorkManager
         inputData: {'userId': userId},
         constraints: Constraints(
-          networkType: NetworkType.not_required,
+          networkType: NetworkType.notRequired,
         ),
       );
 
