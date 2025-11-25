@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:location/location.dart';
-// import 'package:battery_plus/battery_plus.dart';
 import 'package:workmanager/workmanager.dart';
 import '../models/location_tracking.dart';
 import 'storage_service.dart';
@@ -28,12 +27,11 @@ void callbackDispatcher() {
 class LocationService {
   static LocationService? _instance;
   static LocationService get instance => _instance ??= LocationService._();
-  
+
   LocationService._();
 
   final Location _location = Location();
-  // final Battery _battery = Battery();
-  
+
   bool _isTracking = false;
   Timer? _locationTimer;
   StreamSubscription<LocationData>? _locationSubscription;
@@ -61,27 +59,51 @@ class LocationService {
     return await _location.hasPermission();
   }
 
-  /// Request location permission
+  /// Request location permission with better error handling
   Future<PermissionStatus> requestPermission() async {
-    PermissionStatus permission = await _location.hasPermission();
-    
-    if (permission == PermissionStatus.denied) {
-      permission = await _location.requestPermission();
+    try {
+      PermissionStatus permission = await _location.hasPermission();
+
+      print('📍 Current permission status: $permission');
+
+      if (permission == PermissionStatus.denied) {
+        print('🔐 Requesting location permission...');
+        permission = await _location.requestPermission();
+        print('📍 Permission after request: $permission');
+      }
+
+      // Throw specific errors for better handling
+      if (permission == PermissionStatus.deniedForever) {
+        throw Exception('PERMISSION_DENIED_FOREVER');
+      }
+
+      if (permission == PermissionStatus.denied) {
+        throw Exception('PERMISSION_DENIED');
+      }
+
+      return permission;
+    } catch (e) {
+      print('❌ Permission request error: $e');
+      rethrow;
     }
-    
-    return permission;
   }
 
   /// Initialize location settings
   Future<void> initializeSettings() async {
-    await _location.changeSettings(
-      accuracy: LocationAccuracy.high,
-      interval: 300000, // 5 minutes in milliseconds
-      distanceFilter: 10, // 10 meters
-    );
-    
-    // Enable background mode
-    await _location.enableBackgroundMode(enable: true);
+    try {
+      await _location.changeSettings(
+        accuracy: LocationAccuracy.high,
+        interval: 300000, // 5 minutes in milliseconds
+        distanceFilter: 10, // 10 meters
+      );
+
+      // Enable background mode
+      await _location.enableBackgroundMode(enable: true);
+      print('✅ Location settings initialized');
+    } catch (e) {
+      print('⚠️ Error initializing settings: $e');
+      // Continue even if background mode fails
+    }
   }
 
   /// Get current location once
@@ -95,9 +117,8 @@ class LocationService {
 
       // Check permission
       final permission = await requestPermission();
-      if (permission == PermissionStatus.denied || 
-          permission == PermissionStatus.deniedForever) {
-        throw Exception('Location permission denied');
+      if (permission != PermissionStatus.granted) {
+        throw Exception('Location permission not granted');
       }
 
       // Get location
@@ -108,57 +129,84 @@ class LocationService {
     }
   }
 
-  /// Start continuous location tracking
+  /// Start continuous location tracking with improved error handling
   Future<void> startTracking(String userId) async {
     if (_isTracking) {
-      print('Location tracking already started');
+      print('⚠️ Location tracking already started');
       return;
     }
 
     try {
       _currentUserId = userId;
 
-      // Check and request permissions
+      print('🚀 Starting location tracking for user: $userId');
+
+      // Step 1: Check and request service
+      print('1️⃣ Checking location service...');
       final serviceEnabled = await requestLocationService();
       if (!serviceEnabled) {
-        throw Exception('Location service is required');
+        throw Exception('Location service must be enabled. Please enable GPS in your device settings.');
       }
+      print('✅ Location service enabled');
 
+      // Step 2: Check and request permission
+      print('2️⃣ Checking location permission...');
       final permission = await requestPermission();
-      if (permission == PermissionStatus.denied || 
-          permission == PermissionStatus.deniedForever) {
-        throw Exception('Location permission is required');
+      if (permission != PermissionStatus.granted) {
+        throw Exception('Location permission must be granted. Please allow location access in app settings.');
       }
+      print('✅ Location permission granted');
 
-      // Initialize settings
+      // Step 3: Initialize settings
+      print('3️⃣ Initializing location settings...');
       await initializeSettings();
+      print('✅ Settings initialized');
 
-      // Track immediately
+      // Step 4: Track immediately
+      print('4️⃣ Getting initial location...');
       await trackLocation(userId);
+      print('✅ Initial location tracked');
 
-      // Start periodic timer (every 5 minutes)
+      // Step 5: Start periodic timer (every 5 minutes)
+      print('5️⃣ Starting periodic tracking...');
       _locationTimer = Timer.periodic(
         const Duration(minutes: 5),
-        (timer) async {
-          await trackLocation(userId);
+            (timer) async {
+          try {
+            await trackLocation(userId);
+          } catch (e) {
+            print('⚠️ Periodic tracking error: $e');
+          }
         },
       );
 
-      // Register background task with WorkManager
-      await Workmanager().registerPeriodicTask(
-        'location_tracking_$userId',
-        'locationTrackingTask',
-        frequency: const Duration(minutes: 15), // Minimum for WorkManager
-        inputData: {'userId': userId},
-        constraints: Constraints(
-          networkType: NetworkType.notRequired,
-        ),
-      );
+      // Step 6: Register background task with WorkManager
+      print('6️⃣ Registering background task...');
+      try {
+        await Workmanager().registerPeriodicTask(
+          'location_tracking_$userId',
+          'locationTrackingTask',
+          frequency: const Duration(minutes: 15), // Minimum for WorkManager
+          inputData: {'userId': userId},
+          constraints: Constraints(
+            networkType: NetworkType.notRequired,
+          ),
+        );
+        print('✅ Background task registered');
+      } catch (e) {
+        print('⚠️ Background task registration failed: $e');
+        // Continue without background task
+      }
 
       _isTracking = true;
-      print('✅ Location tracking started for user: $userId');
+      print('✅ Location tracking started successfully!');
     } catch (e) {
       print('❌ Error starting location tracking: $e');
+      // Clean up on error
+      _locationTimer?.cancel();
+      _locationTimer = null;
+      _currentUserId = null;
+      _isTracking = false;
       rethrow;
     }
   }
@@ -170,6 +218,8 @@ class LocationService {
     }
 
     try {
+      print('🛑 Stopping location tracking...');
+
       // Cancel timer
       _locationTimer?.cancel();
       _locationTimer = null;
@@ -179,16 +229,24 @@ class LocationService {
       _locationSubscription = null;
 
       // Disable background mode
-      await _location.enableBackgroundMode(enable: false);
+      try {
+        await _location.enableBackgroundMode(enable: false);
+      } catch (e) {
+        print('⚠️ Error disabling background mode: $e');
+      }
 
       // Cancel WorkManager tasks
       if (_currentUserId != null) {
-        await Workmanager().cancelByUniqueName('location_tracking_$_currentUserId');
+        try {
+          await Workmanager().cancelByUniqueName('location_tracking_$_currentUserId');
+        } catch (e) {
+          print('⚠️ Error canceling WorkManager task: $e');
+        }
       }
 
       _isTracking = false;
       _currentUserId = null;
-      
+
       print('✅ Location tracking stopped');
     } catch (e) {
       print('❌ Error stopping location tracking: $e');
@@ -200,16 +258,18 @@ class LocationService {
     try {
       print('📍 Tracking location for user: $userId');
 
-      // Get current location
-      final locationData = await _location.getLocation();
-      
+      // Get current location with timeout
+      final locationData = await _location.getLocation().timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          throw TimeoutException('Location request timed out');
+        },
+      );
+
       if (locationData.latitude == null || locationData.longitude == null) {
         print('⚠️ Invalid location data');
         return;
       }
-
-      // Get battery level
-      // final batteryLevel = await _battery.batteryLevel;
 
       // Create location tracking object
       final tracking = LocationTracking(
@@ -218,13 +278,11 @@ class LocationService {
         longitude: locationData.longitude!,
         timestamp: DateTime.now(),
         accuracy: locationData.accuracy,
-        // batteryLevel: batteryLevel,
         isSynced: false,
       );
 
       print('📌 Location: ${tracking.latitude}, ${tracking.longitude}');
       print('🎯 Accuracy: ${tracking.accuracy}m');
-      print('🔋 Battery: ${tracking.batteryLevel}%');
 
       // Try to send to API
       try {
@@ -238,14 +296,15 @@ class LocationService {
       }
     } catch (e) {
       print('❌ Error tracking location: $e');
+      // Don't rethrow - we want tracking to continue even if one update fails
     }
   }
 
   /// Start real-time location listening
   Future<void> startLocationListener(
-    String userId,
-    Function(LocationData) onLocationChanged,
-  ) async {
+      String userId,
+      Function(LocationData) onLocationChanged,
+      ) async {
     try {
       // Request permissions
       final serviceEnabled = await requestLocationService();
@@ -254,8 +313,7 @@ class LocationService {
       }
 
       final permission = await requestPermission();
-      if (permission == PermissionStatus.denied || 
-          permission == PermissionStatus.deniedForever) {
+      if (permission != PermissionStatus.granted) {
         throw Exception('Location permission is required');
       }
 
@@ -264,20 +322,17 @@ class LocationService {
 
       // Listen to location changes
       _locationSubscription = _location.onLocationChanged.listen(
-        (LocationData locationData) async {
+            (LocationData locationData) async {
           onLocationChanged(locationData);
 
           // Also save to database periodically
           if (locationData.latitude != null && locationData.longitude != null) {
-            // final batteryLevel = await _battery.batteryLevel;
-            
             final tracking = LocationTracking(
               userId: userId,
               latitude: locationData.latitude!,
               longitude: locationData.longitude!,
               timestamp: DateTime.now(),
               accuracy: locationData.accuracy,
-              // batteryLevel: batteryLevel,
               isSynced: false,
             );
 
@@ -309,9 +364,9 @@ class LocationService {
 
   /// Calculate distance between two points (in kilometers)
   double calculateDistance(
-    double lat1, double lon1,
-    double lat2, double lon2,
-  ) {
+      double lat1, double lon1,
+      double lat2, double lon2,
+      ) {
     // Using Haversine formula
     const double earthRadius = 6371; // km
 
@@ -319,10 +374,10 @@ class LocationService {
     final dLon = _toRadians(lon2 - lon1);
 
     final a = (sin(dLat / 2) * sin(dLat / 2)) +
-        (cos(_toRadians(lat1)) * 
-         cos(_toRadians(lat2)) * 
-         sin(dLon / 2) * 
-         sin(dLon / 2));
+        (cos(_toRadians(lat1)) *
+            cos(_toRadians(lat2)) *
+            sin(dLon / 2) *
+            sin(dLon / 2));
 
     final c = 2 * atan2(sqrt(a), sqrt(1 - a));
     return earthRadius * c;

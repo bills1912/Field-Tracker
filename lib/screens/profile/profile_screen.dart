@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/network_provider.dart';
 import '../../providers/location_provider.dart';
@@ -23,33 +24,183 @@ class _ProfileScreenState extends State<ProfileScreen> {
     super.dispose();
   }
 
+  /// Toggle location tracking with improved error handling
   Future<void> _toggleLocationTracking(bool value) async {
     final locationProvider = context.read<LocationProvider>();
     final user = context.read<AuthProvider>().user;
 
+    if (user == null) {
+      _showError('User not found');
+      return;
+    }
+
     try {
       if (value) {
-        await locationProvider.startTracking(user!.id);
+        // Show loading dialog
+        _showLoadingDialog('Starting location tracking...');
+
+        // Start tracking
+        await locationProvider.startTracking(user.id);
+
+        // Dismiss loading
+        if (mounted) Navigator.pop(context);
+
+        // Show success
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Location tracking started')),
+            const SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.check_circle, color: Colors.white),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Text('Location tracking started successfully'),
+                  ),
+                ],
+              ),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 3),
+            ),
           );
         }
       } else {
         await locationProvider.stopTracking();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Location tracking stopped')),
+            const SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.info, color: Colors.white),
+                  SizedBox(width: 12),
+                  Text('Location tracking stopped'),
+                ],
+              ),
+              backgroundColor: Colors.grey,
+            ),
           );
         }
       }
     } catch (e) {
+      // Dismiss loading if shown
+      if (Navigator.canPop(context)) {
+        Navigator.pop(context);
+      }
+
+      // Handle specific errors
+      String errorMessage = 'Failed to toggle location tracking';
+      String actionMessage = '';
+      bool showSettings = false;
+
+      if (e.toString().contains('PERMISSION_DENIED_FOREVER')) {
+        errorMessage = 'Location permission permanently denied';
+        actionMessage = 'Please enable location permission in app settings';
+        showSettings = true;
+      } else if (e.toString().contains('PERMISSION_DENIED')) {
+        errorMessage = 'Location permission denied';
+        actionMessage = 'Location permission is required for tracking';
+      } else if (e.toString().contains('Location service')) {
+        errorMessage = 'Location service disabled';
+        actionMessage = 'Please enable GPS in your device settings';
+        showSettings = true;
+      } else {
+        errorMessage = 'Error: ${e.toString()}';
+      }
+
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+        _showErrorDialog(
+          errorMessage,
+          actionMessage,
+          showSettings: showSettings,
         );
       }
     }
+  }
+
+  void _showLoadingDialog(String message) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 20),
+            Text(message),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.error, color: Colors.white),
+            const SizedBox(width: 12),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
+  void _showErrorDialog(String title, String message, {bool showSettings = false}) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.red.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.error_outline, color: Colors.red),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(child: Text('Error')),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+            if (message.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(message),
+            ],
+          ],
+        ),
+        actions: [
+          if (showSettings)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                openAppSettings();
+              },
+              child: const Text('Open Settings'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showLogoutDialog() {
@@ -65,7 +216,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
       builder: (context) => Padding(
         padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom,
+          // Add system navigation bar padding to avoid overlap
+          bottom: MediaQuery.of(context).viewInsets.bottom + MediaQuery.of(context).padding.bottom + 8,
           left: 24,
           right: 24,
           top: 24,
@@ -161,7 +313,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _confirmLogout() async {
     if (_codeController.text != _verificationCode) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Incorrect verification code')),
+        const SnackBar(
+          content: Text('Incorrect verification code'),
+          backgroundColor: Colors.red,
+        ),
       );
       return;
     }
@@ -184,7 +339,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Logout error: $e')),
+          SnackBar(
+            content: Text('Logout error: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -272,7 +430,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     _buildSwitchTile(
                       icon: Icons.my_location,
                       title: 'Background Tracking',
-                      subtitle: 'Tracks location every 5 minutes',
+                      subtitle: locationProvider.isTracking
+                          ? 'Tracking every 5 minutes'
+                          : 'Enable to track location',
                       value: locationProvider.isTracking,
                       onChanged: _toggleLocationTracking,
                     ),
@@ -298,10 +458,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                       trailing: networkProvider.pendingSync > 0
                           ? ElevatedButton.icon(
-                              icon: const Icon(Icons.sync, size: 16),
-                              label: const Text('Sync Now'),
-                              onPressed: networkProvider.syncNow,
-                            )
+                        icon: const Icon(Icons.sync, size: 16),
+                        label: const Text('Sync Now'),
+                        onPressed: networkProvider.syncNow,
+                      )
                           : null,
                     ),
                   ],
@@ -318,13 +478,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   child: ElevatedButton.icon(
                     icon: _isLoggingOut
                         ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                            ),
-                          )
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
                         : const Icon(Icons.logout),
                     label: const Text('Logout'),
                     style: ElevatedButton.styleFrom(

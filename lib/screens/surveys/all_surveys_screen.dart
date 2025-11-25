@@ -1,28 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
-import '../../providers/auth_provider.dart';
 import '../../providers/survey_provider.dart';
 import '../../providers/network_provider.dart';
 import '../../models/survey.dart';
-import '../../models/user.dart';
 import 'survey_detail_screen.dart';
-import 'all_surveys_screen.dart';
 
-class SurveysListScreen extends StatefulWidget {
-  const SurveysListScreen({super.key});
+class AllSurveysScreen extends StatefulWidget {
+  const AllSurveysScreen({super.key});
 
   @override
-  State<SurveysListScreen> createState() => _SurveysListScreenState();
+  State<AllSurveysScreen> createState() => _AllSurveysScreenState();
 }
 
-class _SurveysListScreenState extends State<SurveysListScreen> {
+class _AllSurveysScreenState extends State<AllSurveysScreen> {
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadSurveys();
-    });
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadSurveys() async {
@@ -42,114 +40,161 @@ class _SurveysListScreenState extends State<SurveysListScreen> {
     }
   }
 
-  Color _getStatusColor(String status) {
-    switch (status.toLowerCase()) {
-      case 'pending':
-        return const Color(0xFFF44336);
-      case 'in_progress':
-        return const Color(0xFFFF9800);
-      case 'completed':
-        return const Color(0xFF4CAF50);
-      default:
-        return Colors.grey;
-    }
-  }
-
   Future<void> _togglePin(Survey survey) async {
     final surveyProvider = context.read<SurveyProvider>();
     await surveyProvider.togglePinSurvey(survey.id);
+
+    // Show feedback
+    final isPinned = surveyProvider.isPinned(survey.id);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(
+                isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                color: Colors.white,
+                size: 20,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  isPinned
+                      ? 'Survey pinned to home'
+                      : 'Survey unpinned from home',
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: isPinned
+              ? const Color(0xFF4CAF50)
+              : Colors.grey[700],
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final user = context.watch<AuthProvider>().user;
     final surveyProvider = context.watch<SurveyProvider>();
     final networkProvider = context.watch<NetworkProvider>();
 
-    // Get pinned surveys only
-    final pinnedSurveys = surveyProvider.pinnedSurveys;
+    // Filter surveys based on search query
+    final filteredSurveys = _searchQuery.isEmpty
+        ? surveyProvider.surveys
+        : surveyProvider.surveys.where((survey) {
+      return survey.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          survey.regionName.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          (survey.description?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false);
+    }).toList();
 
     return Scaffold(
+      appBar: AppBar(
+        title: const Text('All Surveys'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: networkProvider.isConnected ? _loadSurveys : null,
+          ),
+        ],
+      ),
       body: Column(
         children: [
-          // Custom Header with reduced top padding
+          // Search bar
           Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Color(0xFF2196F3), Color(0xFF1976D2)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            child: SafeArea(
-              bottom: false,
-              child: Padding(
-                // REDUCED: padding from 20 to 12 (top) and 16 to 12 (bottom)
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            'Hello, ${user?.username ?? ''}! 👋',
-                            style: const TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '${surveyProvider.surveys.length} Surveys Available',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              color: Colors.white70,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.refresh, color: Colors.white),
-                      tooltip: 'Refresh',
-                      onPressed: networkProvider.isConnected ? _loadSurveys : null,
-                    ),
-                  ],
+            padding: const EdgeInsets.all(16),
+            color: Colors.white,
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: 'Cari survei...',
+                prefixIcon: const Icon(Icons.search, color: Color(0xFF2196F3)),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                  icon: const Icon(Icons.clear, size: 20),
+                  onPressed: () {
+                    _searchController.clear();
+                    setState(() => _searchQuery = '');
+                  },
+                )
+                    : null,
+                filled: true,
+                fillColor: const Color(0xFFF5F5F5),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
                 ),
               ),
+              onChanged: (value) {
+                setState(() => _searchQuery = value);
+              },
             ),
           ),
 
-          // Body Content
+          // Survey count indicator
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            color: const Color(0xFFF8F9FA),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.list_alt,
+                  size: 20,
+                  color: Colors.grey[700],
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '${filteredSurveys.length} surveys',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[700],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  '${surveyProvider.pinnedSurveys.length} pinned',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Color(0xFF2196F3),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Surveys list
           Expanded(
             child: surveyProvider.isLoading
                 ? const Center(child: CircularProgressIndicator())
+                : filteredSurveys.isEmpty
+                ? _buildEmptyState()
                 : RefreshIndicator(
               onRefresh: _loadSurveys,
-              child: pinnedSurveys.isEmpty
-                  ? _buildEmptyState(user?.role)
-                  : ListView.builder(
+              child: ListView.builder(
                 padding: const EdgeInsets.all(16),
-                itemCount: pinnedSurveys.length + 1, // +1 for "View All" button
+                itemCount: filteredSurveys.length,
                 itemBuilder: (context, index) {
-                  // Show "View All Surveys" button at the end
-                  if (index == pinnedSurveys.length) {
-                    return _buildViewAllButton();
-                  }
-
-                  final survey = pinnedSurveys[index];
+                  final survey = filteredSurveys[index];
                   final stats = surveyProvider.surveyStats[survey.id];
-                  final isSelected = surveyProvider.selectedSurveyId == survey.id;
+                  final isSelected =
+                      surveyProvider.selectedSurveyId == survey.id;
+                  final isPinned = surveyProvider.isPinned(survey.id);
 
                   return _buildSurveyCard(
                     survey,
                     stats,
                     isSelected,
                     surveyProvider,
-                    isPinned: true,
+                    isPinned: isPinned,
                   );
                 },
               ),
@@ -160,158 +205,31 @@ class _SurveysListScreenState extends State<SurveysListScreen> {
     );
   }
 
-  Widget _buildEmptyState(UserRole? role) {
+  Widget _buildEmptyState() {
     return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 120,
-              height: 120,
-              decoration: BoxDecoration(
-                color: const Color(0xFF2196F3).withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.push_pin_outlined,
-                size: 64,
-                color: Color(0xFF2196F3),
-              ),
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              'No Pinned Surveys',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF333333),
-              ),
-            ),
-            const SizedBox(height: 12),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            _searchQuery.isEmpty ? Icons.poll_outlined : Icons.search_off,
+            size: 64,
+            color: Colors.grey[300],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            _searchQuery.isEmpty
+                ? 'No surveys available'
+                : 'No surveys found',
+            style: const TextStyle(fontSize: 16, color: Colors.grey),
+          ),
+          if (_searchQuery.isNotEmpty) ...[
+            const SizedBox(height: 8),
             Text(
-              'Pin your favorite surveys to see them here',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey[600],
-              ),
+              'Try different keywords',
+              style: TextStyle(fontSize: 14, color: Colors.grey[400]),
             ),
-            const SizedBox(height: 32),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.list, size: 24),
-              label: const Text(
-                'View All Surveys',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2196F3),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                elevation: 2,
-              ),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const AllSurveysScreen(),
-                  ),
-                );
-              },
-            ),
-            if (role == UserRole.admin || role == UserRole.supervisor) ...[
-              const SizedBox(height: 16),
-              OutlinedButton.icon(
-                icon: const Icon(Icons.add),
-                label: const Text('Create Survey'),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Create survey feature - To be implemented'),
-                    ),
-                  );
-                },
-              ),
-            ],
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildViewAllButton() {
-    return Container(
-      margin: const EdgeInsets.only(top: 8, bottom: 16),
-      child: InkWell(
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const AllSurveysScreen(),
-            ),
-          );
-        },
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: const Color(0xFF2196F3),
-              width: 2,
-            ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(
-                Icons.list,
-                color: Color(0xFF2196F3),
-                size: 24,
-              ),
-              const SizedBox(width: 12),
-              const Text(
-                'Lihat Semua Survei',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF2196F3),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF2196F3),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Consumer<SurveyProvider>(
-                  builder: (context, provider, _) {
-                    return Text(
-                      '${provider.surveys.length}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
+        ],
       ),
     );
   }
@@ -491,6 +409,12 @@ class _SurveysListScreenState extends State<SurveysListScreen> {
                           ? const Color(0xFF2196F3)
                           : Colors.white,
                       shape: BoxShape.circle,
+                      border: Border.all(
+                        color: isPinned
+                            ? const Color(0xFF2196F3)
+                            : Colors.grey[300]!,
+                        width: 2,
+                      ),
                       boxShadow: [
                         BoxShadow(
                           color: Colors.black.withOpacity(0.1),

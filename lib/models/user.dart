@@ -1,7 +1,7 @@
 class User {
   final String id;
   final String username;
-  final String email;
+  final String? email;
   final UserRole role;
   final String? supervisorId;
   final DateTime createdAt;

@@ -72,7 +72,7 @@ dependencies:
   # Charts
   fl_chart: ^0.65.0
 
-  # File Handling
+  smooth_page_indicator: ^1.1.0
 
 dev_dependencies:
   flutter_test:

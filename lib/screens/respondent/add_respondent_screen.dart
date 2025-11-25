@@ -67,7 +67,6 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
     setState(() => _isLoadingLocation = true);
 
     try {
-      // Check permission
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
@@ -80,7 +79,6 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
         throw Exception('Location permission permanently denied');
       }
 
-      // Get current position
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
@@ -92,7 +90,6 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
         }
       });
 
-      // Move map to current location
       if (_selectedLocation != null) {
         _mapController.move(_selectedLocation!, 17);
       }
@@ -171,7 +168,8 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
             ),
             const SizedBox(height: 20),
             ...BaseMapType.values.map((type) => _buildBaseMapOption(type)),
-            const SizedBox(height: 10),
+            // Add bottom safe area padding
+            SizedBox(height: MediaQuery.of(context).padding.bottom),
           ],
         ),
       ),
@@ -301,7 +299,7 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
             backgroundColor: Colors.green,
           ),
         );
-        Navigator.pop(context, true); // Return true to indicate success
+        Navigator.pop(context, true);
       }
     } catch (e) {
       if (mounted) {
@@ -319,6 +317,10 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Get safe area paddings
+    final bottomPadding = MediaQuery.of(context).padding.bottom;
+    final topPadding = MediaQuery.of(context).padding.top;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Add Respondent'),
@@ -353,10 +355,8 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
                       userAgentPackageName: 'com.fieldtracker.app',
                       maxZoom: 20,
                     ),
-                    // Markers
                     MarkerLayer(
                       markers: [
-                        // Current location marker (blue)
                         if (_currentPosition != null)
                           Marker(
                             point: LatLng(
@@ -378,7 +378,6 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
                               ),
                             ),
                           ),
-                        // Selected location marker (red pin)
                         if (_selectedLocation != null)
                           Marker(
                             point: _selectedLocation!,
@@ -395,7 +394,6 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
                   ],
                 ),
 
-                // Loading indicator
                 if (_isLoadingLocation)
                   Container(
                     color: Colors.black.withOpacity(0.3),
@@ -416,7 +414,6 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
                     ),
                   ),
 
-                // Base Map Indicator
                 Positioned(
                   top: 16,
                   left: 16,
@@ -455,7 +452,6 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
                   ),
                 ),
 
-                // Location info
                 if (_selectedLocation != null)
                   Positioned(
                     bottom: 16,
@@ -505,7 +501,6 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
                     ),
                   ),
 
-                // FAB for current location
                 Positioned(
                   top: 16,
                   right: 16,
@@ -539,7 +534,6 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
                   ),
                 ),
 
-                // Instruction overlay
                 Positioned(
                   top: 70,
                   left: 16,
@@ -572,7 +566,7 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
             ),
           ),
 
-          // Form Section
+          // Form Section with SafeArea bottom padding
           Expanded(
             flex: 2,
             child: Container(
@@ -587,13 +581,18 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
                 ],
               ),
               child: SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
+                padding: EdgeInsets.only(
+                  left: 20,
+                  right: 20,
+                  top: 20,
+                  // IMPORTANT: Add bottom padding to avoid navigation bar overlap
+                  bottom: 20 + bottomPadding,
+                ),
                 child: Form(
                   key: _formKey,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // Name Field
                       TextFormField(
                         controller: _nameController,
                         decoration: const InputDecoration(
@@ -610,7 +609,6 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
                       ),
                       const SizedBox(height: 16),
 
-                      // Phone Field
                       TextFormField(
                         controller: _phoneController,
                         keyboardType: TextInputType.phone,
@@ -622,7 +620,6 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
                       ),
                       const SizedBox(height: 16),
 
-                      // Address Field
                       TextFormField(
                         controller: _addressController,
                         maxLines: 2,
@@ -639,14 +636,14 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
                         onPressed: _isSubmitting ? null : _submitForm,
                         icon: _isSubmitting
                             ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor:
-                                      AlwaysStoppedAnimation<Color>(Colors.white),
-                                ),
-                              )
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor:
+                            AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
                             : const Icon(Icons.save),
                         label: Text(_isSubmitting ? 'Saving...' : 'Save Respondent'),
                         style: ElevatedButton.styleFrom(

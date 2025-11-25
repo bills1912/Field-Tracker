@@ -10,7 +10,7 @@ import '../models/message.dart';
 class StorageService {
   static StorageService? _instance;
   static StorageService get instance => _instance ??= StorageService._();
-  
+
   StorageService._();
 
   SharedPreferences? _prefs;
@@ -121,7 +121,7 @@ class StorageService {
 
   Future<List<LocationTracking>> getPendingLocations() async {
     final List<Map<String, dynamic>> maps = await _database?.query('pending_locations') ?? [];
-    
+
     return maps.map((map) {
       return LocationTracking(
         userId: map['user_id'],
@@ -154,7 +154,7 @@ class StorageService {
 
   Future<List<Respondent>> getPendingRespondents() async {
     final List<Map<String, dynamic>> maps = await _database?.query('pending_respondents') ?? [];
-    
+
     return maps.map((map) {
       return Respondent.fromJson(json.decode(map['data']));
     }).toList();
@@ -179,7 +179,7 @@ class StorageService {
 
   Future<List<Message>> getPendingMessages() async {
     final List<Map<String, dynamic>> maps = await _database?.query('pending_messages') ?? [];
-    
+
     return maps.map((map) {
       return Message.fromJson(json.decode(map['data']));
     }).toList();
@@ -192,7 +192,7 @@ class StorageService {
   // Cached FAQs
   Future<void> cacheFAQs(List<Map<String, dynamic>> faqs) async {
     await _database?.delete('cached_faqs');
-    
+
     for (var faq in faqs) {
       await _database?.insert('cached_faqs', {
         'id': faq['id'],
@@ -204,7 +204,7 @@ class StorageService {
 
   Future<List<Map<String, dynamic>>> getCachedFAQs() async {
     final List<Map<String, dynamic>> maps = await _database?.query('cached_faqs') ?? [];
-    
+
     return maps.map((map) => json.decode(map['data']) as Map<String, dynamic>).toList();
   }
 
@@ -231,12 +231,57 @@ class StorageService {
     await _prefs?.remove('selected_survey_data');
   }
 
+  // ==================== PINNED SURVEYS ====================
+
+  /// Save pinned survey IDs
+  Future<void> savePinnedSurveys(Set<String> surveyIds) async {
+    final List<String> idsList = surveyIds.toList();
+    await _prefs?.setString('pinned_surveys', json.encode(idsList));
+  }
+
+  /// Get pinned survey IDs
+  Future<Set<String>> getPinnedSurveys() async {
+    final data = _prefs?.getString('pinned_surveys');
+    if (data != null) {
+      final List<dynamic> idsList = json.decode(data);
+      return Set<String>.from(idsList);
+    }
+    return {};
+  }
+
+  /// Add a survey to pinned list
+  Future<void> pinSurvey(String surveyId) async {
+    final pinnedSurveys = await getPinnedSurveys();
+    pinnedSurveys.add(surveyId);
+    await savePinnedSurveys(pinnedSurveys);
+  }
+
+  /// Remove a survey from pinned list
+  Future<void> unpinSurvey(String surveyId) async {
+    final pinnedSurveys = await getPinnedSurveys();
+    pinnedSurveys.remove(surveyId);
+    await savePinnedSurveys(pinnedSurveys);
+  }
+
+  /// Check if a survey is pinned
+  Future<bool> isSurveyPinned(String surveyId) async {
+    final pinnedSurveys = await getPinnedSurveys();
+    return pinnedSurveys.contains(surveyId);
+  }
+
+  /// Clear all pinned surveys
+  Future<void> clearPinnedSurveys() async {
+    await _prefs?.remove('pinned_surveys');
+  }
+
+  // ========================================================
+
   // Pending Count
   Future<int> getPendingCount() async {
     final locations = await getPendingLocations();
     final respondents = await getPendingRespondents();
     final messages = await getPendingMessages();
-    
+
     return locations.length + respondents.length + messages.length;
   }
 }
