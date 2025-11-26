@@ -4,8 +4,11 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/network_provider.dart';
 import '../../providers/location_provider.dart';
+import '../../providers/fraud_detection_provider.dart'; // 🆕 NEW
 import '../../models/user.dart';
-import '../auth/login_screen.dart';
+import '../../models/sensor_data.dart'; // 🆕 NEW
+import '../../widgets/fraud_detection_widgets.dart'; // 🆕 NEW
+import '../auth/onboarding_screen.dart'; // 🔧 FIX: Changed from login_screen to onboarding_screen
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -19,10 +22,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String? _verificationCode;
   final TextEditingController _codeController = TextEditingController();
 
+  // 🆕 NEW: Device security info
+  DeviceSecurityInfo? _securityInfo;
+  bool _isLoadingSecurityInfo = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDeviceSecurityInfo(); // 🆕 NEW
+  }
+
   @override
   void dispose() {
     _codeController.dispose();
     super.dispose();
+  }
+
+  // 🆕 NEW: Load device security info
+  Future<void> _loadDeviceSecurityInfo() async {
+    setState(() => _isLoadingSecurityInfo = true);
+    try {
+      final fraudProvider = context.read<FraudDetectionProvider>();
+      _securityInfo = await fraudProvider.getDeviceSecurityStatus();
+    } catch (e) {
+      debugPrint('Error loading security info: $e');
+    } finally {
+      setState(() => _isLoadingSecurityInfo = false);
+    }
   }
 
   /// Toggle location tracking with improved error handling
@@ -38,7 +64,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     try {
       if (value) {
         _showLoadingDialog('Starting location tracking...');
-        await locationProvider.startTracking(user.id);
+        // 🆕 UPDATED: Use tracking with fraud detection
+        await locationProvider.startTrackingWithFraudDetection(user.id);
         if (mounted) Navigator.pop(context);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -48,7 +75,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Icon(Icons.check_circle, color: Colors.white),
                   SizedBox(width: 12),
                   Expanded(
-                    child: Text('Location tracking started successfully'),
+                    child: Text('Location tracking with fraud detection started'),
                   ),
                 ],
               ),
@@ -196,7 +223,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   void _showLogoutDialog() {
-    // Generate random 3-digit code
     _verificationCode = (100 + (900 * (DateTime.now().millisecond / 1000))).toInt().toString();
     _codeController.clear();
 
@@ -312,38 +338,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return;
     }
 
-    // Close the dialog first
     Navigator.pop(context);
-
     setState(() => _isLoggingOut = true);
 
     try {
-      print('🚪 Starting logout process...');
-
       // Stop location tracking
       final locationProvider = context.read<LocationProvider>();
       if (locationProvider.isTracking) {
-        print('📍 Stopping location tracking...');
         await locationProvider.stopTracking();
       }
 
+      // 🆕 NEW: Stop fraud detection monitoring
+      final fraudProvider = context.read<FraudDetectionProvider>();
+      if (fraudProvider.isMonitoring) {
+        await fraudProvider.stopMonitoring();
+      }
+
       // Logout
-      print('🔐 Clearing authentication...');
       final authProvider = context.read<AuthProvider>();
       await authProvider.logout();
 
-      // PERBAIKAN: Ensure navigation happens after logout is complete
       if (mounted) {
-        print('🏠 Navigating to login screen...');
-        // Use Navigator.pushAndRemoveUntil to clear all previous routes
+        // 🔧 FIX: Navigate to OnboardingScreen instead of LoginScreen
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (context) => const LoginScreen()),
+          MaterialPageRoute(builder: (context) => const OnboardingScreen()),
               (route) => false,
         );
-        print('✅ Logout successful');
       }
     } catch (e) {
-      print('❌ Logout error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -371,14 +393,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final user = context.watch<AuthProvider>().user;
     final networkProvider = context.watch<NetworkProvider>();
     final locationProvider = context.watch<LocationProvider>();
+    final fraudProvider = context.watch<FraudDetectionProvider>(); // 🆕 NEW
 
     return Scaffold(
       body: CustomScrollView(
         slivers: [
-          // PERBAIKAN: Gunakan SliverAppBar dengan expandedHeight yang lebih kecil
-          // dan pastikan content tidak overflow
           SliverAppBar(
-            expandedHeight: 220, // Sedikit ditambah untuk memberi ruang
+            expandedHeight: 220,
             pinned: true,
             flexibleSpace: FlexibleSpaceBar(
               background: Container(
@@ -396,7 +417,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         const SizedBox(height: 20),
-                        // Avatar
                         Container(
                           width: 80,
                           height: 80,
@@ -407,7 +427,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           child: const Icon(Icons.person, size: 40, color: Colors.white),
                         ),
                         const SizedBox(height: 12),
-                        // Username - PERBAIKAN: Tambah overflow handling
                         Text(
                           user?.username ?? '',
                           style: const TextStyle(
@@ -419,7 +438,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           maxLines: 1,
                         ),
                         const SizedBox(height: 4),
-                        // Email - PERBAIKAN: Tambah overflow handling
                         Text(
                           user?.email ?? '',
                           style: const TextStyle(fontSize: 14, color: Colors.white70),
@@ -427,7 +445,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           maxLines: 1,
                         ),
                         const SizedBox(height: 8),
-                        // Role badge
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                           decoration: BoxDecoration(
@@ -454,6 +471,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
           SliverToBoxAdapter(
             child: Column(
               children: [
+                // 🆕 NEW: Device Security Status Section
+                _buildSection(
+                  'Keamanan Perangkat',
+                  [
+                    if (_isLoadingSecurityInfo)
+                      const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    else if (_securityInfo != null)
+                      Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: _buildSecuritySummary(_securityInfo!),
+                      )
+                    else
+                      ListTile(
+                        leading: const Icon(Icons.refresh, color: Color(0xFF2196F3)),
+                        title: const Text('Load Security Info'),
+                        onTap: _loadDeviceSecurityInfo,
+                      ),
+                  ],
+                ),
+
                 _buildSection(
                   'Location Tracking',
                   [
@@ -461,13 +501,78 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       icon: Icons.my_location,
                       title: 'Background Tracking',
                       subtitle: locationProvider.isTracking
-                          ? 'Tracking every 5 minutes'
+                          ? 'Tracking with fraud detection active'
                           : 'Enable to track location',
                       value: locationProvider.isTracking,
                       onChanged: _toggleLocationTracking,
                     ),
+                    // 🆕 NEW: Fraud Detection Toggle
+                    _buildSwitchTile(
+                      icon: Icons.security,
+                      title: 'Fraud Detection',
+                      subtitle: locationProvider.isFraudDetectionEnabled
+                          ? 'Location fraud detection active'
+                          : 'Enable for extra security',
+                      value: locationProvider.isFraudDetectionEnabled,
+                      onChanged: (value) {
+                        locationProvider.setFraudDetectionEnabled(value);
+                      },
+                    ),
                   ],
                 ),
+
+                // 🆕 NEW: Fraud Statistics
+                if (fraudProvider.totalAnalyzed > 0)
+                  _buildSection(
+                    'Fraud Statistics',
+                    [
+                      ListTile(
+                        leading: const Icon(Icons.analytics, color: Color(0xFF2196F3)),
+                        title: const Text('Total Analyzed'),
+                        trailing: Text(
+                          '${fraudProvider.totalAnalyzed}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                      ListTile(
+                        leading: Icon(
+                          Icons.warning,
+                          color: fraudProvider.totalFlagged > 0
+                              ? const Color(0xFFF44336)
+                              : Colors.grey,
+                        ),
+                        title: const Text('Flagged Locations'),
+                        trailing: Text(
+                          '${fraudProvider.totalFlagged}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: fraudProvider.totalFlagged > 0
+                                ? const Color(0xFFF44336)
+                                : Colors.grey,
+                          ),
+                        ),
+                      ),
+                      ListTile(
+                        leading: const Icon(Icons.verified_user, color: Color(0xFF4CAF50)),
+                        title: const Text('Average Trust Score'),
+                        trailing: Text(
+                          '${(fraudProvider.averageTrustScore * 100).toInt()}%',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: fraudProvider.averageTrustScore >= 0.7
+                                ? const Color(0xFF4CAF50)
+                                : const Color(0xFFFF9800),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
                 _buildSection(
                   'Sync Status',
                   [
@@ -534,19 +639,115 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         style: TextStyle(fontSize: 14, color: Colors.grey[600]),
                       ),
                       Text(
-                        'Built with Flutter',
+                        'Built with Flutter + Anti-Fraud System',
                         style: TextStyle(fontSize: 12, color: Colors.grey[400]),
                       ),
                     ],
                   ),
                 ),
-                // Tambah padding bottom untuk safe area
                 SizedBox(height: MediaQuery.of(context).padding.bottom),
               ],
             ),
           ),
         ],
       ),
+    );
+  }
+
+  // 🆕 NEW: Build security summary widget
+  Widget _buildSecuritySummary(DeviceSecurityInfo info) {
+    final isSecure = info.securityScore >= 0.7;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isSecure
+            ? const Color(0xFFE8F5E9)
+            : const Color(0xFFFFEBEE),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Icon(
+                isSecure ? Icons.verified_user : Icons.warning,
+                color: isSecure
+                    ? const Color(0xFF4CAF50)
+                    : const Color(0xFFF44336),
+                size: 32,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isSecure ? 'Perangkat Aman' : 'Perangkat Berisiko',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: isSecure
+                            ? const Color(0xFF4CAF50)
+                            : const Color(0xFFF44336),
+                      ),
+                    ),
+                    Text(
+                      'Security Score: ${(info.securityScore * 100).toInt()}%',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.refresh),
+                onPressed: _loadDeviceSecurityInfo,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildSecurityItem(
+                'Mock GPS',
+                !info.isMockLocationEnabled,
+              ),
+              _buildSecurityItem(
+                'Root',
+                !info.isDeviceRooted,
+              ),
+              _buildSecurityItem(
+                'Emulator',
+                !info.isEmulator,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSecurityItem(String label, bool isOk) {
+    return Column(
+      children: [
+        Icon(
+          isOk ? Icons.check_circle : Icons.cancel,
+          color: isOk ? const Color(0xFF4CAF50) : const Color(0xFFF44336),
+          size: 24,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            color: Colors.grey[600],
+          ),
+        ),
+      ],
     );
   }
 

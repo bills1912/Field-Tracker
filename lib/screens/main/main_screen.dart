@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/network_provider.dart';
+import '../../providers/fraud_detection_provider.dart'; // 🆕 NEW
 import '../surveys/surveys_list_screen.dart';
 import '../map/map_screen.dart';
 import '../chat/chat_screen.dart';
 import '../profile/profile_screen.dart';
+import '../fraud/fraud_detection_screen.dart'; // 🆕 NEW
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -17,13 +19,33 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
 
-  // List of screens for each tab
+  // 🆕 UPDATED: Added FraudDetectionScreen to the list
   final List<Widget> _screens = [
     const SurveysListScreen(),
     const MapScreen(),
-    const ChatScreen(),
+    const FraudDetectionScreen(), // 🆕 NEW - Replaced ChatScreen
     const ProfileScreen(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    // 🆕 NEW: Start fraud detection monitoring when screen loads
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initializeFraudDetection();
+    });
+  }
+
+  // 🆕 NEW: Initialize fraud detection
+  Future<void> _initializeFraudDetection() async {
+    try {
+      final fraudProvider = context.read<FraudDetectionProvider>();
+      await fraudProvider.startMonitoring();
+      debugPrint('✅ Fraud detection monitoring started');
+    } catch (e) {
+      debugPrint('⚠️ Error starting fraud detection: $e');
+    }
+  }
 
   void _onTabTapped(int index) {
     setState(() {
@@ -34,7 +56,7 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     final networkProvider = context.watch<NetworkProvider>();
-    final authProvider = context.watch<AuthProvider>();
+    final fraudProvider = context.watch<FraudDetectionProvider>(); // 🆕 NEW
 
     return Scaffold(
       body: Stack(
@@ -121,42 +143,44 @@ class _MainScreenState extends State<MainScreen> {
               ),
               label: 'Map',
             ),
+            // 🆕 UPDATED: Changed from Chat to Security/Fraud
             BottomNavigationBarItem(
               icon: Stack(
                 children: [
                   Icon(
                     _currentIndex == 2
-                        ? Icons.chat_bubble
-                        : Icons.chat_bubble_outline,
+                        ? Icons.security
+                        : Icons.security_outlined,
                   ),
-                  // Unread badge (optional - can be dynamic)
-                  // Positioned(
-                  //   right: 0,
-                  //   top: 0,
-                  //   child: Container(
-                  //     padding: const EdgeInsets.all(2),
-                  //     decoration: const BoxDecoration(
-                  //       color: Colors.red,
-                  //       shape: BoxShape.circle,
-                  //     ),
-                  //     constraints: const BoxConstraints(
-                  //       minWidth: 12,
-                  //       minHeight: 12,
-                  //     ),
-                  //     child: const Text(
-                  //       '3',
-                  //       style: TextStyle(
-                  //         color: Colors.white,
-                  //         fontSize: 8,
-                  //         fontWeight: FontWeight.bold,
-                  //       ),
-                  //       textAlign: TextAlign.center,
-                  //     ),
-                  //   ),
-                  // ),
+                  // 🆕 NEW: Show badge if fraud detected
+                  if (fraudProvider.totalFlagged > 0)
+                    Positioned(
+                      right: 0,
+                      top: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: const BoxDecoration(
+                          color: Colors.red,
+                          shape: BoxShape.circle,
+                        ),
+                        constraints: const BoxConstraints(
+                          minWidth: 14,
+                          minHeight: 14,
+                        ),
+                        child: Text(
+                          '${fraudProvider.totalFlagged > 9 ? "9+" : fraudProvider.totalFlagged}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 8,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
                 ],
               ),
-              label: 'Chat',
+              label: 'Security',
             ),
             BottomNavigationBarItem(
               icon: Icon(
@@ -169,4 +193,4 @@ class _MainScreenState extends State<MainScreen> {
       ),
     );
   }
-}
+}// TODO Implement this library.

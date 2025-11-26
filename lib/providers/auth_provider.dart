@@ -245,7 +245,10 @@ class AuthProvider with ChangeNotifier {
       await prefs.remove('email');
       await prefs.remove('role');
 
-      print('✅ Logout completed\n');
+      // 🔧 FIX: Clear onboarding status so it shows again after logout
+      await prefs.remove('onboarding_completed');
+
+      print('✅ Logout completed - redirecting to onboarding\n');
 
       notifyListeners();
     } catch (e) {

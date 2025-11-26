@@ -6,12 +6,14 @@ import 'package:workmanager/workmanager.dart';
 // Services
 import 'services/storage_service.dart';
 import 'services/location_service.dart';
+import 'services/sensor_collector_service.dart'; // 🆕 NEW
 
 // Providers
 import 'providers/auth_provider.dart';
 import 'providers/survey_provider.dart';
 import 'providers/location_provider.dart';
 import 'providers/network_provider.dart';
+import 'providers/fraud_detection_provider.dart'; // 🆕 NEW
 
 // Screens
 import 'screens/splash_screen.dart';
@@ -45,6 +47,8 @@ Future<void> _initializeServices() async {
       isInDebugMode: false,
     );
 
+    // 🆕 NEW: Initialize sensor collection for fraud detection
+    // This will be started when user logs in
     debugPrint('✅ All services initialized successfully');
   } catch (e) {
     debugPrint('❌ Error initializing services: $e');
@@ -77,6 +81,11 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider<NetworkProvider>(
           create: (_) => NetworkProvider(),
         ),
+
+        // 🆕 NEW: Fraud Detection Provider
+        ChangeNotifierProvider<FraudDetectionProvider>(
+          create: (_) => FraudDetectionProvider(),
+        ),
       ],
       child: MaterialApp(
         title: 'Field Tracker',
@@ -90,7 +99,6 @@ class MyApp extends StatelessWidget {
   }
 
   ThemeData _buildTheme() {
-    // Define Roboto text theme
     const String fontFamily = 'Roboto';
 
     return ThemeData(
@@ -102,11 +110,7 @@ class MyApp extends StatelessWidget {
       primarySwatch: Colors.blue,
       primaryColor: const Color(0xFF2196F3),
       visualDensity: VisualDensity.adaptivePlatformDensity,
-
-      // Font Family
       fontFamily: fontFamily,
-
-      // Text Theme with Roboto
       textTheme: const TextTheme(
         displayLarge: TextStyle(fontFamily: fontFamily, fontWeight: FontWeight.w300),
         displayMedium: TextStyle(fontFamily: fontFamily, fontWeight: FontWeight.w300),
@@ -124,8 +128,6 @@ class MyApp extends StatelessWidget {
         labelMedium: TextStyle(fontFamily: fontFamily, fontWeight: FontWeight.w500),
         labelSmall: TextStyle(fontFamily: fontFamily, fontWeight: FontWeight.w500),
       ),
-
-      // AppBar Theme
       appBarTheme: const AppBarTheme(
         elevation: 0,
         centerTitle: false,
@@ -139,8 +141,6 @@ class MyApp extends StatelessWidget {
         ),
         iconTheme: IconThemeData(color: Colors.white),
       ),
-
-      // Card Theme
       cardTheme: CardThemeData(
         elevation: 2,
         shape: RoundedRectangleBorder(
@@ -148,8 +148,6 @@ class MyApp extends StatelessWidget {
         ),
         margin: const EdgeInsets.symmetric(vertical: 8),
       ),
-
-      // Elevated Button Theme
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: const Color(0xFF2196F3),
@@ -166,8 +164,6 @@ class MyApp extends StatelessWidget {
           ),
         ),
       ),
-
-      // Outlined Button Theme
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: const Color(0xFF2196F3),
@@ -183,8 +179,6 @@ class MyApp extends StatelessWidget {
           ),
         ),
       ),
-
-      // Text Button Theme
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: const Color(0xFF2196F3),
@@ -195,8 +189,6 @@ class MyApp extends StatelessWidget {
           ),
         ),
       ),
-
-      // Input Decoration Theme
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: Colors.grey[100],
@@ -224,15 +216,11 @@ class MyApp extends StatelessWidget {
         labelStyle: const TextStyle(color: Color(0xFF666666)),
         hintStyle: TextStyle(color: Colors.grey[400]),
       ),
-
-      // Floating Action Button Theme
       floatingActionButtonTheme: const FloatingActionButtonThemeData(
         backgroundColor: Color(0xFF2196F3),
         foregroundColor: Colors.white,
         elevation: 4,
       ),
-
-      // Bottom Navigation Bar Theme
       bottomNavigationBarTheme: const BottomNavigationBarThemeData(
         type: BottomNavigationBarType.fixed,
         backgroundColor: Colors.white,
@@ -242,8 +230,6 @@ class MyApp extends StatelessWidget {
         unselectedLabelStyle: TextStyle(fontFamily: fontFamily, fontSize: 12),
         elevation: 8,
       ),
-
-      // Tab Bar Theme
       tabBarTheme: const TabBarThemeData(
         labelColor: Colors.white,
         unselectedLabelColor: Colors.white70,
@@ -251,8 +237,6 @@ class MyApp extends StatelessWidget {
         labelStyle: TextStyle(fontFamily: fontFamily, fontSize: 14, fontWeight: FontWeight.w600),
         unselectedLabelStyle: TextStyle(fontFamily: fontFamily, fontSize: 14),
       ),
-
-      // Snackbar Theme
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
@@ -260,8 +244,6 @@ class MyApp extends StatelessWidget {
         ),
         contentTextStyle: const TextStyle(fontFamily: fontFamily, color: Colors.white),
       ),
-
-      // Dialog Theme
       dialogTheme: DialogThemeData(
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
@@ -273,14 +255,10 @@ class MyApp extends StatelessWidget {
           color: Color(0xFF333333),
         ),
       ),
-
-      // Divider Theme
       dividerTheme: const DividerThemeData(
         thickness: 1,
         color: Color(0xFFE0E0E0),
       ),
-
-      // Scaffold Background Color
       scaffoldBackgroundColor: const Color(0xFFF5F5F5),
     );
   }
@@ -295,10 +273,8 @@ class MyApp extends StatelessWidget {
   }
 
   Route<dynamic>? _onGenerateRoute(RouteSettings settings) {
-    // Handle dynamic routes here if needed
     switch (settings.name) {
       default:
-        // Return 404 page for unknown routes
         return MaterialPageRoute(
           builder: (context) => Scaffold(
             appBar: AppBar(title: const Text('Page Not Found')),

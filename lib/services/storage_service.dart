@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/cupertino.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
@@ -10,6 +11,7 @@ import '../models/message.dart';
 class StorageService {
   static StorageService? _instance;
   static StorageService get instance => _instance ??= StorageService._();
+  static const String _keyOnboardingCompleted = 'onboarding_completed';
 
   StorageService._();
 
@@ -84,6 +86,23 @@ class StorageService {
 
   Future<void> removeToken() async {
     await _prefs?.remove('token');
+  }
+
+  /// Check if onboarding is completed
+  Future<bool> isOnboardingCompleted() async {
+    return _prefs?.getBool(_keyOnboardingCompleted) ?? false;
+  }
+
+  /// Set onboarding as completed
+  Future<void> setOnboardingCompleted(bool completed) async {
+    await _prefs?.setBool(_keyOnboardingCompleted, completed);
+    debugPrint('✅ Onboarding status set to: $completed');
+  }
+
+  /// Clear onboarding status (for logout)
+  Future<void> clearOnboardingStatus() async {
+    await _prefs?.remove(_keyOnboardingCompleted);
+    debugPrint('✅ Onboarding status cleared');
   }
 
   // User Management

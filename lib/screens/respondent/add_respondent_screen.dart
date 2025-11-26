@@ -7,7 +7,10 @@ import 'package:provider/provider.dart';
 import '../../models/respondent.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/survey_provider.dart';
+import '../../providers/fraud_detection_provider.dart'; // 🆕 NEW
 import '../../services/api_service.dart';
+import '../../widgets/fraud_detection_widgets.dart'; // 🆕 NEW
+import '../../models/location_fraud_result.dart'; // 🆕 NEW
 
 enum BaseMapType {
   openStreetMap,
@@ -40,6 +43,11 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
 
   // Base Map
   BaseMapType _currentBaseMap = BaseMapType.openStreetMap;
+
+  // 🆕 NEW: Fraud detection state
+  LocationFraudResult? _fraudResult;
+  bool _isValidatingLocation = false;
+  bool _bypassFraudWarning = false;
 
   // Google Maps Tile URLs
   static const String _googleSatelliteUrl =
@@ -93,6 +101,9 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
       if (_selectedLocation != null) {
         _mapController.move(_selectedLocation!, 17);
       }
+
+      // 🆕 NEW: Validate location after getting it
+      await _validateCurrentLocation();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -105,6 +116,118 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
     } finally {
       setState(() => _isLoadingLocation = false);
     }
+  }
+
+  // 🆕 NEW: Validate location for fraud
+  Future<void> _validateCurrentLocation() async {
+    if (_selectedLocation == null) return;
+
+    setState(() => _isValidatingLocation = true);
+
+    try {
+      final fraudProvider = context.read<FraudDetectionProvider>();
+      final authProvider = context.read<AuthProvider>();
+
+      // Quick check first
+      final quickCheck = await fraudProvider.quickCheck(
+        _selectedLocation!.latitude,
+        _selectedLocation!.longitude,
+        _currentPosition?.accuracy,
+      );
+
+      if (quickCheck.isPotentiallyFraudulent) {
+        // Show warning
+        if (mounted) {
+          _showFraudWarningDialog(quickCheck.reason, quickCheck.confidence);
+        }
+      }
+    } catch (e) {
+      debugPrint('Error validating location: $e');
+    } finally {
+      setState(() => _isValidatingLocation = false);
+    }
+  }
+
+  // 🆕 NEW: Show fraud warning dialog
+  void _showFraudWarningDialog(String reason, double confidence) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.warning, color: Colors.orange),
+            ),
+            const SizedBox(width: 12),
+            const Text('Peringatan Lokasi'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              reason,
+              style: const TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.info_outline, color: Colors.orange, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Confidence: ${(confidence * 100).toInt()}%',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Colors.orange,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Pastikan Anda berada di lokasi yang benar dan tidak menggunakan fake GPS.',
+              style: TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.pop(context); // Go back from add respondent
+            },
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              setState(() => _bypassFraudWarning = true);
+              Navigator.pop(context);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange,
+            ),
+            child: const Text('Lanjutkan'),
+          ),
+        ],
+      ),
+    );
   }
 
   String _getTileUrl() {
@@ -168,7 +291,6 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
             ),
             const SizedBox(height: 20),
             ...BaseMapType.values.map((type) => _buildBaseMapOption(type)),
-            // Add bottom safe area padding
             SizedBox(height: MediaQuery.of(context).padding.bottom),
           ],
         ),
@@ -243,7 +365,11 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
     setState(() {
       _selectedLocation = point;
       _useCurrentLocation = false;
+      _bypassFraudWarning = false; // Reset bypass when location changes
     });
+
+    // 🆕 NEW: Validate new location
+    _validateCurrentLocation();
   }
 
   Future<void> _submitForm() async {
@@ -261,6 +387,7 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
 
     final surveyProvider = context.read<SurveyProvider>();
     final authProvider = context.read<AuthProvider>();
+    final fraudProvider = context.read<FraudDetectionProvider>();
 
     if (surveyProvider.selectedSurveyId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -272,12 +399,23 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
       return;
     }
 
+    // 🆕 NEW: Final fraud check before submit
+    if (!_bypassFraudWarning) {
+      final quickCheck = await fraudProvider.quickCheck(
+        _selectedLocation!.latitude,
+        _selectedLocation!.longitude,
+        _currentPosition?.accuracy,
+      );
+
+      if (quickCheck.isPotentiallyFraudulent) {
+        _showFraudWarningDialog(quickCheck.reason, quickCheck.confidence);
+        return;
+      }
+    }
+
     setState(() => _isSubmitting = true);
 
     try {
-      // PERBAIKAN: Format data sesuai dengan kemungkinan format API yang berbeda
-      // Coba beberapa format yang umum digunakan
-
       final String name = _nameController.text.trim();
       final String? phone = _phoneController.text.trim().isEmpty
           ? null
@@ -286,23 +424,12 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
           ? null
           : _addressController.text.trim();
 
-      print('📤 Preparing respondent data...');
-      print('   Name: $name');
-      print('   Phone: $phone');
-      print('   Address: $address');
-      print('   Latitude: ${_selectedLocation!.latitude}');
-      print('   Longitude: ${_selectedLocation!.longitude}');
-      print('   Survey ID: ${surveyProvider.selectedSurveyId}');
-      print('   Enumerator ID: ${authProvider.user?.id}');
-
-      // Format 1: Dengan location sebagai object nested
       final respondentData = {
         'name': name,
         'phone': phone,
         'address': address,
         'latitude': _selectedLocation!.latitude,
         'longitude': _selectedLocation!.longitude,
-        // Juga kirim dalam format nested untuk kompatibilitas
         'location': {
           'latitude': _selectedLocation!.latitude,
           'longitude': _selectedLocation!.longitude,
@@ -310,29 +437,31 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
         'status': 'pending',
         'survey_id': surveyProvider.selectedSurveyId,
         'enumerator_id': authProvider.user?.id,
+        // 🆕 NEW: Add fraud check info
+        'fraud_bypassed': _bypassFraudWarning,
+        'gps_accuracy': _currentPosition?.accuracy,
       };
-
-      print('📦 Request data: $respondentData');
 
       await ApiService.instance.createRespondent(respondentData);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Row(
               children: [
-                Icon(Icons.check_circle, color: Colors.white),
-                SizedBox(width: 12),
-                Text('Respondent added successfully!'),
+                const Icon(Icons.check_circle, color: Colors.white),
+                const SizedBox(width: 12),
+                Text(_bypassFraudWarning
+                    ? 'Respondent added (with warning bypass)'
+                    : 'Respondent added successfully!'),
               ],
             ),
-            backgroundColor: Colors.green,
+            backgroundColor: _bypassFraudWarning ? Colors.orange : Colors.green,
           ),
         );
         Navigator.pop(context, true);
       }
     } catch (e) {
-      print('❌ Error adding respondent: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -355,7 +484,6 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Get safe area paddings
     final bottomPadding = MediaQuery.of(context).padding.bottom;
 
     return Scaffold(
@@ -431,19 +559,21 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
                   ],
                 ),
 
-                if (_isLoadingLocation)
+                if (_isLoadingLocation || _isValidatingLocation)
                   Container(
                     color: Colors.black.withOpacity(0.3),
-                    child: const Center(
+                    child: Center(
                       child: Card(
                         child: Padding(
-                          padding: EdgeInsets.all(20),
+                          padding: const EdgeInsets.all(20),
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              CircularProgressIndicator(),
-                              SizedBox(height: 16),
-                              Text('Getting your location...'),
+                              const CircularProgressIndicator(),
+                              const SizedBox(height: 16),
+                              Text(_isValidatingLocation
+                                  ? 'Validating location...'
+                                  : 'Getting your location...'),
                             ],
                           ),
                         ),
@@ -451,43 +581,82 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
                     ),
                   ),
 
-                Positioned(
-                  top: 16,
-                  left: 16,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          _getBaseMapIcon(_currentBaseMap),
-                          size: 16,
-                          color: const Color(0xFF2196F3),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          _getBaseMapName(_currentBaseMap),
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF333333),
+                // 🆕 NEW: Fraud warning banner
+                if (_bypassFraudWarning)
+                  Positioned(
+                    top: 16,
+                    left: 16,
+                    right: 16,
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.orange,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.warning, color: Colors.white, size: 20),
+                          const SizedBox(width: 8),
+                          const Expanded(
+                            child: Text(
+                              'Peringatan lokasi diabaikan',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
                           ),
-                        ),
-                      ],
+                          GestureDetector(
+                            onTap: () {
+                              setState(() => _bypassFraudWarning = false);
+                              _validateCurrentLocation();
+                            },
+                            child: const Icon(Icons.close, color: Colors.white, size: 20),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
+
+                // Base map indicator
+                if (!_bypassFraudWarning)
+                  Positioned(
+                    top: 16,
+                    left: 16,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.1),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _getBaseMapIcon(_currentBaseMap),
+                            size: 16,
+                            color: const Color(0xFF2196F3),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            _getBaseMapName(_currentBaseMap),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF333333),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
 
                 if (_selectedLocation != null)
                   Positioned(
@@ -539,7 +708,7 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
                   ),
 
                 Positioned(
-                  top: 16,
+                  top: _bypassFraudWarning ? 80 : 16,
                   right: 16,
                   child: Column(
                     children: [
@@ -572,7 +741,7 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
                 ),
 
                 Positioned(
-                  top: 70,
+                  top: _bypassFraudWarning ? 140 : 70,
                   left: 16,
                   right: 70,
                   child: Container(
@@ -603,7 +772,7 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
             ),
           ),
 
-          // Form Section with SafeArea bottom padding
+          // Form Section
           Expanded(
             flex: 2,
             child: Container(
@@ -622,7 +791,6 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
                   left: 20,
                   right: 20,
                   top: 20,
-                  // IMPORTANT: Add bottom padding to avoid navigation bar overlap
                   bottom: 20 + bottomPadding,
                 ),
                 child: Form(
@@ -685,7 +853,9 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
                         label: Text(_isSubmitting ? 'Saving...' : 'Save Respondent'),
                         style: ElevatedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 16),
-                          backgroundColor: const Color(0xFF4CAF50),
+                          backgroundColor: _bypassFraudWarning
+                              ? Colors.orange
+                              : const Color(0xFF4CAF50),
                         ),
                       ),
                     ],

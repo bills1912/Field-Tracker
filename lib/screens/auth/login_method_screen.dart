@@ -51,7 +51,7 @@ class _LoginMethodScreenState extends State<LoginMethodScreen> {
             ),
             const SizedBox(height: 16),
             Text(
-              'Fasih akan menyimpan lokasi Anda untuk keperluan fitur analisis monitoring bahkan saat aplikasi sedang ditutup atau tidak digunakan.',
+              'SINTONG akan menyimpan lokasi Anda untuk keperluan fitur analisis monitoring bahkan saat aplikasi sedang ditutup atau tidak digunakan.',
               style: TextStyle(
                 fontSize: 15,
                 height: 1.5,
