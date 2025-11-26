@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:field_tracker/models/user.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
@@ -15,6 +16,7 @@ import '../../services/api_service.dart';
 import '../../models/respondent.dart';
 import '../../models/location_tracking.dart';
 import '../respondent/add_respondent_screen.dart';
+import 'package:flutter_map_geojson/flutter_map_geojson.dart';
 
 enum BaseMapType {
   openStreetMap,
@@ -38,6 +40,9 @@ class _MapScreenState extends State<MapScreen> {
   String _viewMode = 'map'; // 'map' or 'list'
   BaseMapType _currentBaseMap = BaseMapType.openStreetMap;
 
+  late GeoJsonParser _geoJsonParser;
+  bool _showAreaBoundaries = true;
+
   // Navigation state
   bool _isNavigating = false;
   Respondent? _navigationTarget;
@@ -56,14 +61,38 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
+    _geoJsonParser = GeoJsonParser(
+      defaultPolygonBorderColor: Colors.deepPurple,
+      defaultPolygonFillColor: Colors.deepPurple.withOpacity(0.15),
+      defaultPolygonBorderStroke: 2.0,
+      defaultMarkerColor: Colors.deepPurple,
+    );
     _loadMapData();
     _getCurrentLocation();
+    _loadGeoJsonData();
   }
 
   @override
   void dispose() {
     _positionSubscription?.cancel();
     super.dispose();
+  }
+
+  Future<void> _loadGeoJsonData() async {
+    // Simulating an API call or loading asset.
+    // Replace this string with data from ApiService.instance.getBoundaries()
+    final String geoJsonString = await rootBundle.loadString('assets/geom/paluta_kec.geojson');;
+
+    // If using API:
+    // final jsonString = await ApiService.instance.getGeoJson();
+    // _geoJsonParser.parseGeoJsonAsString(jsonString);
+
+    _geoJsonParser.parseGeoJsonAsString(geoJsonString);
+
+    // The parser creates specific polygon objects.
+    // You can filter or modify _geoJsonParser.polygons here if needed.
+
+    if (mounted) setState(() {});
   }
 
   Future<void> _loadMapData() async {
@@ -560,6 +589,19 @@ class _MapScreenState extends State<MapScreen> {
           ? Column(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
+                // Geom Boundaries
+                FloatingActionButton(
+                  heroTag: 'boundary_toggle',
+                  mini: true,
+                  backgroundColor: _showAreaBoundaries ? Colors.deepPurple : Colors.white,
+                  child: Icon(
+                    Icons.public, // or Icons.polyline
+                    color: _showAreaBoundaries ? Colors.white : Colors.deepPurple,
+                  ),
+                  tooltip: 'Toggle Area Boundaries',
+                  onPressed: () => setState(() => _showAreaBoundaries = !_showAreaBoundaries),
+                ),
+                const SizedBox(height: 8),
                 // Base Map Quick Toggle FAB
                 FloatingActionButton(
                   heroTag: 'basemap',
@@ -751,6 +793,10 @@ class _MapScreenState extends State<MapScreen> {
                   ? const ['a', 'b', 'c']
                   : const [],
             ),
+            if (_showAreaBoundaries)
+              PolygonLayer(
+                polygons: _geoJsonParser.polygons,
+              ),
             // Navigation line
             if (_isNavigating && _myPosition != null && _navigationTarget != null)
               PolylineLayer(
