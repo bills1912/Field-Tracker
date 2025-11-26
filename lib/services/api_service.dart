@@ -24,30 +24,169 @@ class ApiService {
     final token = await StorageService.instance.getToken();
     return {
       'Content-Type': 'application/json',
+      'Accept': 'application/json',
       if (token != null) 'Authorization': 'Bearer $token',
     };
   }
 
-  // Authentication APIs
+  // ==================== AUTHENTICATION APIs ====================
+
+  /// Login method with extensive debugging
   Future<Map<String, dynamic>> login(String email, String password) async {
+    print('\n' + '='*70);
+    print('🌐 API SERVICE - LOGIN REQUEST');
+    print('='*70);
+    print('📍 URL: $baseUrl/auth/login');
+    print('📧 Email: $email');
+    print('🔑 Password: ${password.replaceAll(RegExp(r'.'), '*')} (${password.length} chars)');
+
     try {
+      print('\n📤 Preparing request...');
+
+      // Prepare request body
+      final requestBody = {
+        'email': email,
+        'password': password,
+      };
+
+      print('📦 Request body:');
+      print(json.encode(requestBody));
+
+      print('\n🔗 Making HTTP POST request...');
+      final startTime = DateTime.now();
+
       final response = await http.post(
         Uri.parse('$baseUrl/auth/login'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'email': email, 'password': password}),
-      ).timeout(const Duration(seconds: 30));
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: json.encode(requestBody),
+      ).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          throw TimeoutException('Request timeout after 30 seconds');
+        },
+      );
 
-      if (response.statusCode == 200) {
-        return json.decode(response.body);
-      } else {
+      final endTime = DateTime.now();
+      final duration = endTime.difference(startTime);
+
+      print('\n📥 Response received in ${duration.inMilliseconds}ms');
+      print('📊 Status Code: ${response.statusCode}');
+      print('📋 Headers: ${response.headers}');
+      print('📄 Body length: ${response.body.length} bytes');
+      print('\n📄 Response Body:');
+      print(response.body);
+      print('');
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        print('✅ Success! Parsing response...');
+
+        try {
+          final Map<String, dynamic> data = json.decode(response.body);
+          print('✓ JSON parsed successfully');
+          print('✓ Keys found: ${data.keys.join(", ")}');
+
+          // Check for various success indicators
+          if (data.containsKey('success')) {
+            print('✓ Has "success" field: ${data['success']}');
+          }
+          if (data.containsKey('token')) {
+            print('✓ Has "token" field: YES (${data['token'].toString().length} chars)');
+          }
+          if (data.containsKey('access_token')) {
+            print('✓ Has "access_token" field: YES');
+          }
+          if (data.containsKey('user')) {
+            print('✓ Has "user" field: YES');
+          }
+          if (data.containsKey('data')) {
+            print('✓ Has "data" field: YES');
+          }
+
+          print('='*70);
+          print('✅ API LOGIN SUCCESS');
+          print('='*70 + '\n');
+
+          return data;
+
+        } catch (e) {
+          print('❌ JSON parsing error: $e');
+          print('Raw response: ${response.body}');
+          throw FormatException('Invalid JSON response from server: $e');
+        }
+
+      } else if (response.statusCode == 401) {
+        print('❌ Authentication failed (401)');
         final errorBody = json.decode(response.body);
-        throw Exception(errorBody['message'] ?? 'Login failed: ${response.statusCode}');
+        print('Error response: $errorBody');
+        print('='*70 + '\n');
+
+        return {
+          'success': false,
+          'message': errorBody['message'] ?? 'Email atau password salah',
+          'error': 'Unauthorized',
+        };
+
+      } else if (response.statusCode == 404) {
+        print('❌ Endpoint not found (404)');
+        print('='*70 + '\n');
+        throw Exception('Login endpoint tidak ditemukan. URL: $baseUrl/auth/login');
+
+      } else if (response.statusCode >= 500) {
+        print('❌ Server error (${response.statusCode})');
+        print('='*70 + '\n');
+        throw Exception('Server error (${response.statusCode}). Coba lagi nanti.');
+
+      } else {
+        print('❌ Unexpected status code: ${response.statusCode}');
+        print('Response: ${response.body}');
+        print('='*70 + '\n');
+
+        try {
+          final errorBody = json.decode(response.body);
+          throw Exception(errorBody['message'] ?? 'Login failed: ${response.statusCode}');
+        } catch (e) {
+          throw Exception('Login failed with status ${response.statusCode}');
+        }
       }
-    } on SocketException {
-      throw Exception('No internet connection. Please check your network.');
-    } on TimeoutException {
-      throw Exception('Request timeout. Please try again.');
-    } catch (e) {
+
+    } on SocketException catch (e) {
+      print('\n💥 SOCKET EXCEPTION');
+      print('='*70);
+      print('Error: $e');
+      print('Kemungkinan:');
+      print('1. Tidak ada koneksi internet');
+      print('2. Server tidak bisa dijangkau');
+      print('3. URL salah: $baseUrl');
+      print('='*70 + '\n');
+      throw Exception('Tidak ada koneksi internet. Periksa koneksi Anda.');
+
+    } on TimeoutException catch (e) {
+      print('\n⏱️ TIMEOUT EXCEPTION');
+      print('='*70);
+      print('Error: $e');
+      print('Request melebihi 30 detik');
+      print('='*70 + '\n');
+      throw Exception('Request timeout. Koneksi terlalu lambat.');
+
+    } on FormatException catch (e) {
+      print('\n📝 FORMAT EXCEPTION');
+      print('='*70);
+      print('Error: $e');
+      print('Response dari server bukan JSON yang valid');
+      print('='*70 + '\n');
+      rethrow;
+
+    } catch (e, stackTrace) {
+      print('\n💥 UNEXPECTED EXCEPTION');
+      print('='*70);
+      print('Error: $e');
+      print('Type: ${e.runtimeType}');
+      print('\nStackTrace:');
+      print(stackTrace);
+      print('='*70 + '\n');
       throw Exception('Login failed: $e');
     }
   }
@@ -93,7 +232,8 @@ class ApiService {
     }
   }
 
-  // Survey APIs
+  // ==================== SURVEY APIs ====================
+
   Future<List<Survey>> getSurveys() async {
     try {
       final headers = await _getHeaders();
@@ -169,7 +309,8 @@ class ApiService {
     }
   }
 
-  // Respondent APIs with improved error handling
+  // ==================== RESPONDENT APIs ====================
+
   Future<List<Respondent>> getRespondents({String? surveyId}) async {
     try {
       final headers = await _getHeaders();
@@ -212,13 +353,11 @@ class ApiService {
     }
   }
 
-  /// Create respondent with improved error handling and validation
   Future<Respondent> createRespondent(Map<String, dynamic> data) async {
     try {
       print('📤 Creating respondent...');
       print('📦 Data: ${json.encode(data)}');
 
-      // Validate required fields
       if (data['name'] == null || (data['name'] as String).trim().isEmpty) {
         throw Exception('Name is required');
       }
@@ -251,7 +390,6 @@ class ApiService {
         print('✅ Respondent created successfully');
         return Respondent.fromJson(responseData);
       } else {
-        // Parse error message from response
         String errorMessage = 'Failed to create respondent';
         try {
           final errorBody = json.decode(response.body);
@@ -307,7 +445,8 @@ class ApiService {
     }
   }
 
-  // Location APIs
+  // ==================== LOCATION APIs ====================
+
   Future<LocationTracking> createLocation(LocationTracking location) async {
     try {
       final headers = await _getHeaders();
@@ -385,7 +524,8 @@ class ApiService {
     }
   }
 
-  // Message APIs
+  // ==================== MESSAGE APIs ====================
+
   Future<Message> createMessage(Message message) async {
     try {
       final headers = await _getHeaders();
@@ -444,7 +584,8 @@ class ApiService {
     }
   }
 
-  // FAQ APIs
+  // ==================== FAQ APIs ====================
+
   Future<List<FAQ>> getFAQs() async {
     try {
       final response = await http.get(
@@ -463,7 +604,8 @@ class ApiService {
     }
   }
 
-  // Dashboard APIs
+  // ==================== DASHBOARD APIs ====================
+
   Future<Map<String, dynamic>> getDashboardStats() async {
     try {
       final headers = await _getHeaders();

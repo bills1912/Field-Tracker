@@ -4,11 +4,11 @@ import '../../providers/auth_provider.dart';
 import '../main/main_screen.dart';
 
 class LoginScreen extends StatefulWidget {
-  final String? loginType; // Optional with default value
+  final String? loginType;
 
   const LoginScreen({
     super.key,
-    this.loginType, // Make it optional
+    this.loginType,
   });
 
   @override
@@ -17,14 +17,22 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _usernameController = TextEditingController();
+  final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
   bool _isLoading = false;
 
   @override
+  void initState() {
+    super.initState();
+    // Pre-fill untuk testing (HAPUS DI PRODUCTION)
+    // _emailController.text = 'test@example.com';
+    // _passwordController.text = 'password123';
+  }
+
+  @override
   void dispose() {
-    _usernameController.dispose();
+    _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
@@ -50,45 +58,175 @@ class _LoginScreenState extends State<LoginScreen> {
         : Icons.admin_panel_settings_outlined;
   }
 
+  void _showDebugDialog(String title, String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: SingleChildScrollView(
+          child: Text(message),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _login() async {
-    if (!_formKey.currentState!.validate()) return;
+    // Validate form
+    if (!_formKey.currentState!.validate()) {
+      print('❌ Form validation failed');
+      return;
+    }
+
+    // Get credentials
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+
+    print('\n' + '='*60);
+    print('🔐 LOGIN ATTEMPT');
+    print('='*60);
+    print('📧 Email: $email');
+    print('🔑 Password: ${password.replaceAll(RegExp(r'.'), '*')}');
+    print('⏰ Time: ${DateTime.now()}');
+    print('='*60 + '\n');
 
     setState(() => _isLoading = true);
 
     try {
       final authProvider = context.read<AuthProvider>();
 
-      final success = await authProvider.login(
-        _usernameController.text.trim(),
-        _passwordController.text,
-      );
+      print('🌐 Calling authProvider.login()...');
 
-      if (mounted) {
-        if (success) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const MainScreen(),
-            ),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(authProvider.error ?? 'Login failed'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
+      final success = await authProvider.login(email, password);
+
+      print('\n' + '='*60);
+      print('📥 LOGIN RESPONSE');
+      print('='*60);
+      print('✓ Success: $success');
+      print('✓ Is Authenticated: ${authProvider.isAuthenticated}');
+      print('✓ User: ${authProvider.user?.username ?? "NULL"}');
+      print('✓ Token exists: ${authProvider.token != null}');
+      print('✓ Error: ${authProvider.error ?? "NONE"}');
+      print('='*60 + '\n');
+
+      if (!mounted) {
+        print('⚠️ Widget not mounted, aborting navigation');
+        return;
       }
-    } catch (e) {
-      if (mounted) {
+
+      if (success && authProvider.isAuthenticated) {
+        print('✅ LOGIN SUCCESS - Navigating to MainScreen');
+
+        // Show success message
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 12),
+                Text('Login berhasil!'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+
+        // Wait a moment for snackbar
+        await Future.delayed(const Duration(milliseconds: 500));
+
+        if (!mounted) return;
+
+        // Navigate and clear all previous routes
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(
+            builder: (context) => const MainScreen(),
+          ),
+              (route) => false,
+        );
+
+        print('✅ Navigation completed');
+
+      } else {
+        print('❌ LOGIN FAILED');
+        print('Error message: ${authProvider.error}');
+
+        // Show error in dialog for debugging
+        _showDebugDialog(
+            'Login Failed',
+            'Success: $success\n'
+                'Authenticated: ${authProvider.isAuthenticated}\n'
+                'Error: ${authProvider.error ?? "Unknown error"}\n\n'
+                'Check console for detailed logs.'
+        );
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: $e'),
+            content: Row(
+              children: [
+                const Icon(Icons.error_outline, color: Colors.white),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    authProvider.error ?? 'Login gagal. Periksa email dan password Anda.',
+                  ),
+                ),
+              ],
+            ),
             backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'Detail',
+              textColor: Colors.white,
+              onPressed: () {
+                _showDebugDialog(
+                  'Error Details',
+                  authProvider.error ?? 'No error details available',
+                );
+              },
+            ),
           ),
         );
       }
+    } catch (e, stackTrace) {
+      print('\n' + '='*60);
+      print('💥 EXCEPTION CAUGHT');
+      print('='*60);
+      print('Error: $e');
+      print('StackTrace:');
+      print(stackTrace);
+      print('='*60 + '\n');
+
+      if (!mounted) return;
+
+      _showDebugDialog(
+          'Exception',
+          'Error: $e\n\n'
+              'StackTrace:\n$stackTrace'
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.error_outline, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text('Error: ${e.toString()}'),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 5),
+        ),
+      );
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -129,7 +267,7 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Login Type Badge (only if loginType is specified)
+                // Login Type Badge
                 if (widget.loginType != null)
                   Center(
                     child: Container(
@@ -182,9 +320,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 8),
 
                 Text(
-                  widget.loginType == null
-                      ? 'Silakan login untuk melanjutkan'
-                      : _loginTypeSubtitle,
+                  _loginTypeSubtitle,
                   style: TextStyle(
                     fontSize: 15,
                     color: Colors.grey[600],
@@ -193,13 +329,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 const SizedBox(height: 40),
 
-                // Username Field
+                // Email Field
                 TextFormField(
-                  controller: _usernameController,
+                  controller: _emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  textInputAction: TextInputAction.next,
                   decoration: InputDecoration(
-                    labelText: 'Username',
-                    hintText: 'Masukkan username',
-                    prefixIcon: const Icon(Icons.person_outline),
+                    labelText: 'Email',
+                    hintText: 'Masukkan email Anda',
+                    prefixIcon: const Icon(Icons.email_outlined),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -217,7 +355,11 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
-                      return 'Username tidak boleh kosong';
+                      return 'Email tidak boleh kosong';
+                    }
+                    // Basic email validation
+                    if (!value.contains('@') || !value.contains('.')) {
+                      return 'Format email tidak valid';
                     }
                     return null;
                   },
@@ -229,6 +371,8 @@ class _LoginScreenState extends State<LoginScreen> {
                 TextFormField(
                   controller: _passwordController,
                   obscureText: _obscurePassword,
+                  textInputAction: TextInputAction.done,
+                  onFieldSubmitted: (_) => _login(),
                   decoration: InputDecoration(
                     labelText: 'Password',
                     hintText: 'Masukkan password',
@@ -279,6 +423,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
                           content: Text('Hubungi administrator untuk reset password'),
+                          behavior: SnackBarBehavior.floating,
                         ),
                       );
                     },
@@ -342,6 +487,46 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                 ),
+
+                const SizedBox(height: 16),
+
+                // Debug Info (HAPUS DI PRODUCTION)
+                if (true) // Set false di production
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.yellow[100],
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.orange),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.info_outline, size: 16, color: Colors.orange),
+                            SizedBox(width: 8),
+                            Text(
+                              'DEBUG MODE',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Check console untuk log detail.\n'
+                              'API Endpoint: https://fieldtrack-15.preview.emergentagent.com/api',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey[800],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
               ],
             ),
           ),

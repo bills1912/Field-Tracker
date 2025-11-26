@@ -16,7 +16,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   final List<OnboardingContent> _onboardingData = [
     OnboardingContent(
       image: 'assets/images/onboarding1.png',
-      title: 'Selamat Datang di FASIH',
+      title: 'Selamat Datang di SINTONG',
       description:
       'Aplikasi pengumpulan data resmi milik Badan Pusat Statistik. Satu platform terpadu untuk berbagai kebutuhan survei dan sensus nasional.',
     ),

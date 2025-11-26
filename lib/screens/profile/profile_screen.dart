@@ -5,6 +5,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/network_provider.dart';
 import '../../providers/location_provider.dart';
 import '../../models/user.dart';
+import '../auth/login_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -36,16 +37,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     try {
       if (value) {
-        // Show loading dialog
         _showLoadingDialog('Starting location tracking...');
-
-        // Start tracking
         await locationProvider.startTracking(user.id);
-
-        // Dismiss loading
         if (mounted) Navigator.pop(context);
-
-        // Show success
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -81,12 +75,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
         }
       }
     } catch (e) {
-      // Dismiss loading if shown
       if (Navigator.canPop(context)) {
         Navigator.pop(context);
       }
 
-      // Handle specific errors
       String errorMessage = 'Failed to toggle location tracking';
       String actionMessage = '';
       bool showSettings = false;
@@ -216,7 +208,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
       builder: (context) => Padding(
         padding: EdgeInsets.only(
-          // Add system navigation bar padding to avoid overlap
           bottom: MediaQuery.of(context).viewInsets.bottom + MediaQuery.of(context).padding.bottom + 8,
           left: 24,
           right: 24,
@@ -321,27 +312,50 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return;
     }
 
+    // Close the dialog first
     Navigator.pop(context);
+
     setState(() => _isLoggingOut = true);
 
     try {
+      print('🚪 Starting logout process...');
+
       // Stop location tracking
       final locationProvider = context.read<LocationProvider>();
-      await locationProvider.stopTracking();
+      if (locationProvider.isTracking) {
+        print('📍 Stopping location tracking...');
+        await locationProvider.stopTracking();
+      }
 
       // Logout
+      print('🔐 Clearing authentication...');
       final authProvider = context.read<AuthProvider>();
       await authProvider.logout();
 
+      // PERBAIKAN: Ensure navigation happens after logout is complete
       if (mounted) {
-        Navigator.of(context).pushReplacementNamed('/login');
+        print('🏠 Navigating to login screen...');
+        // Use Navigator.pushAndRemoveUntil to clear all previous routes
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => const LoginScreen()),
+              (route) => false,
+        );
+        print('✅ Logout successful');
       }
     } catch (e) {
+      print('❌ Logout error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Logout error: $e'),
+            content: Row(
+              children: [
+                const Icon(Icons.error, color: Colors.white),
+                const SizedBox(width: 12),
+                Expanded(child: Text('Logout error: $e')),
+              ],
+            ),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
           ),
         );
       }
@@ -486,7 +500,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     )
                         : const Icon(Icons.logout),
-                    label: const Text('Logout'),
+                    label: Text(_isLoggingOut ? 'Logging out...' : 'Logout'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFFF44336),
                       padding: const EdgeInsets.symmetric(vertical: 16),
