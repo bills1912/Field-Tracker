@@ -15,19 +15,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   final List<OnboardingContent> _onboardingData = [
     OnboardingContent(
-      image: 'assets/images/onboarding1.png',
+      image: 'assets/images/onboard-1.png',
       title: 'Selamat Datang di SINTONG',
       description:
-      'Aplikasi pengumpulan data resmi milik Badan Pusat Statistik. Satu platform terpadu untuk berbagai kebutuhan survei dan sensus nasional.',
+      'Aplikasi tracking pendata kegiatan survei dan sensus untuk progres yang lebih cepat, tepat, dengan data yang berkualitas dan akurat.',
     ),
     OnboardingContent(
-      image: 'assets/images/onboarding2.png',
+      image: 'assets/images/onboard-2.png',
       title: 'Pemantauan Real-time & Akurat',
       description:
       'Data hasil wawancara dapat dipantau secara langsung dengan tingkat akurasi tinggi. Proses validasi otomatis memastikan kualitas data terbaik.',
     ),
     OnboardingContent(
-      image: 'assets/images/onboarding3.png',
+      image: 'assets/images/onboard-3.png',
       title: 'Fleksibel Online & Offline',
       description:
       'Aplikasi dapat beroperasi dalam mode online maupun offline. Data tersimpan aman di perangkat dan dapat dikirim saat terhubung kembali ke internet.',
@@ -130,7 +130,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       ),
                       children: [
                         TextSpan(
-                          text: 'Kebijakan Privasikami',
+                          text: ' Kebijakan dan Privasi kami',
                           style: TextStyle(
                             fontSize: 12,
                             color: const Color(0xFF0B6BA8),

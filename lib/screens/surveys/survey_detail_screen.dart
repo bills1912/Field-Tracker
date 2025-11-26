@@ -59,18 +59,18 @@ class _SurveyDetailScreenState extends State<SurveyDetailScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildInfoCard(),
-                  const SizedBox(height: 16),
-                  if (_stats != null) _buildStatsGrid(),
-                  const SizedBox(height: 16),
-                  if (_stats != null) _buildProgressSection(),
-                ],
-              ),
-            ),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildInfoCard(),
+            const SizedBox(height: 16),
+            if (_stats != null) _buildStatsGrid(),
+            const SizedBox(height: 16),
+            if (_stats != null) _buildProgressSection(),
+          ],
+        ),
+      ),
     );
   }
 
@@ -81,16 +81,21 @@ class _SurveyDetailScreenState extends State<SurveyDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // PERBAIKAN: Wrap Row dengan Flexible untuk mencegah overflow
             Row(
               children: [
                 const Icon(Icons.location_on, color: Color(0xFF2196F3)),
                 const SizedBox(width: 8),
-                Text(
-                  '${widget.survey.regionLevel.toUpperCase()} - ${widget.survey.regionName}',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: Color(0xFF2196F3),
-                    fontWeight: FontWeight.w600,
+                Expanded(
+                  child: Text(
+                    '${widget.survey.regionLevel.toUpperCase()} - ${widget.survey.regionName}',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Color(0xFF2196F3),
+                      fontWeight: FontWeight.w600,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 2,
                   ),
                 ),
               ],
@@ -141,43 +146,49 @@ class _SurveyDetailScreenState extends State<SurveyDetailScreen> {
   }
 
   Widget _buildStatsGrid() {
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisSpacing: 16,
-      mainAxisSpacing: 16,
-      childAspectRatio: 1.5,
-      children: [
-        _buildStatCard(
-          'Total Respondents',
-          _stats!.totalRespondents.toString(),
-          Icons.assignment,
-          const Color(0xFF2196F3),
-          const Color(0xFFE3F2FD),
-        ),
-        _buildStatCard(
-          'Pending',
-          _stats!.pending.toString(),
-          Icons.pending,
-          const Color(0xFFF44336),
-          const Color(0xFFFFEBEE),
-        ),
-        _buildStatCard(
-          'In Progress',
-          _stats!.inProgress.toString(),
-          Icons.hourglass_empty,
-          const Color(0xFFFF9800),
-          const Color(0xFFFFF3E0),
-        ),
-        _buildStatCard(
-          'Completed',
-          _stats!.completed.toString(),
-          Icons.check_circle,
-          const Color(0xFF4CAF50),
-          const Color(0xFFE8F5E9),
-        ),
-      ],
+    // PERBAIKAN: Gunakan LayoutBuilder untuk responsive design
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return GridView.count(
+          crossAxisCount: 2,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          // PERBAIKAN: Naikkan childAspectRatio agar card lebih pendek
+          childAspectRatio: 1.3,
+          children: [
+            _buildStatCard(
+              'Total',
+              _stats!.totalRespondents.toString(),
+              Icons.assignment,
+              const Color(0xFF2196F3),
+              const Color(0xFFE3F2FD),
+            ),
+            _buildStatCard(
+              'Pending',
+              _stats!.pending.toString(),
+              Icons.pending,
+              const Color(0xFFF44336),
+              const Color(0xFFFFEBEE),
+            ),
+            _buildStatCard(
+              'In Progress',
+              _stats!.inProgress.toString(),
+              Icons.hourglass_empty,
+              const Color(0xFFFF9800),
+              const Color(0xFFFFF3E0),
+            ),
+            _buildStatCard(
+              'Completed',
+              _stats!.completed.toString(),
+              Icons.check_circle,
+              const Color(0xFF4CAF50),
+              const Color(0xFFE8F5E9),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -187,25 +198,31 @@ class _SurveyDetailScreenState extends State<SurveyDetailScreen> {
       color: bgColor,
       elevation: 0,
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 40, color: iconColor),
-            const SizedBox(height: 12),
-            Text(
-              value,
-              style: const TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF333333),
+            Icon(icon, size: 28, color: iconColor),
+            const SizedBox(height: 8),
+            // PERBAIKAN: Gunakan FittedBox untuk mencegah overflow
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF333333),
+                ),
               ),
             ),
             const SizedBox(height: 4),
             Text(
               label,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 14, color: Color(0xFF666666)),
+              style: const TextStyle(fontSize: 12, color: Color(0xFF666666)),
+              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),

@@ -142,7 +142,9 @@ class _LoginMethodScreenState extends State<LoginMethodScreen> {
 
     // Then navigate to login screen
     if (mounted) {
-      Navigator.pushReplacement(
+      // PERBAIKAN: Gunakan push() bukan pushReplacement()
+      // Agar user bisa kembali ke halaman ini dengan tombol back
+      Navigator.push(
         context,
         MaterialPageRoute(
           builder: (context) => LoginScreen(loginType: loginType),
@@ -206,24 +208,17 @@ class _LoginMethodScreenState extends State<LoginMethodScreen> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        // Illustration
-                        Container(
-                          width: 280,
-                          height: 280,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Image.asset(
-                            'assets/images/login_method.png',
-                            fit: BoxFit.contain,
-                            errorBuilder: (context, error, stackTrace) {
-                              return _buildFallbackIllustration();
-                            },
-                          ),
+                        Image.asset(
+                          'assets/images/login-method-2.png',
+                          height: 500,
+                          width: 500,
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) {
+                            return _buildFallbackIllustration();
+                          },
                         ),
 
-                        const SizedBox(height: 32),
+                        const SizedBox(height: 20),
 
                         // Instruction Text
                         Text(

@@ -489,44 +489,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
 
                 const SizedBox(height: 16),
-
-                // Debug Info (HAPUS DI PRODUCTION)
-                if (true) // Set false di production
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.yellow[100],
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.orange),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Row(
-                          children: [
-                            Icon(Icons.info_outline, size: 16, color: Colors.orange),
-                            SizedBox(width: 8),
-                            Text(
-                              'DEBUG MODE',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Check console untuk log detail.\n'
-                              'API Endpoint: https://fieldtrack-15.preview.emergentagent.com/api',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.grey[800],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
               ],
             ),
           ),

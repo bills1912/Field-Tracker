@@ -375,8 +375,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Scaffold(
       body: CustomScrollView(
         slivers: [
+          // PERBAIKAN: Gunakan SliverAppBar dengan expandedHeight yang lebih kecil
+          // dan pastikan content tidak overflow
           SliverAppBar(
-            expandedHeight: 200,
+            expandedHeight: 220, // Sedikit ditambah untuk memberi ruang
             pinned: true,
             flexibleSpace: FlexibleSpaceBar(
               background: Container(
@@ -387,50 +389,64 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     colors: [Color(0xFF2196F3), Color(0xFF1976D2)],
                   ),
                 ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const SizedBox(height: 40),
-                    Container(
-                      width: 96,
-                      height: 96,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.person, size: 48, color: Colors.white),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      user?.username ?? '',
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      user?.email ?? '',
-                      style: const TextStyle(fontSize: 14, color: Colors.white70),
-                    ),
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1976D2),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Text(
-                        user?.role.name.toUpperCase() ?? '',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
+                child: SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const SizedBox(height: 20),
+                        // Avatar
+                        Container(
+                          width: 80,
+                          height: 80,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.person, size: 40, color: Colors.white),
                         ),
-                      ),
+                        const SizedBox(height: 12),
+                        // Username - PERBAIKAN: Tambah overflow handling
+                        Text(
+                          user?.username ?? '',
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
+                        const SizedBox(height: 4),
+                        // Email - PERBAIKAN: Tambah overflow handling
+                        Text(
+                          user?.email ?? '',
+                          style: const TextStyle(fontSize: 14, color: Colors.white70),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
+                        const SizedBox(height: 8),
+                        // Role badge
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1976D2),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Text(
+                            user?.role.name.toUpperCase() ?? '',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -524,6 +540,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ],
                   ),
                 ),
+                // Tambah padding bottom untuk safe area
+                SizedBox(height: MediaQuery.of(context).padding.bottom),
               ],
             ),
           ),

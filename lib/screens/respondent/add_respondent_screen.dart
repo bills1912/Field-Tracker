@@ -275,38 +275,76 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
     setState(() => _isSubmitting = true);
 
     try {
+      // PERBAIKAN: Format data sesuai dengan kemungkinan format API yang berbeda
+      // Coba beberapa format yang umum digunakan
+
+      final String name = _nameController.text.trim();
+      final String? phone = _phoneController.text.trim().isEmpty
+          ? null
+          : _phoneController.text.trim();
+      final String? address = _addressController.text.trim().isEmpty
+          ? null
+          : _addressController.text.trim();
+
+      print('📤 Preparing respondent data...');
+      print('   Name: $name');
+      print('   Phone: $phone');
+      print('   Address: $address');
+      print('   Latitude: ${_selectedLocation!.latitude}');
+      print('   Longitude: ${_selectedLocation!.longitude}');
+      print('   Survey ID: ${surveyProvider.selectedSurveyId}');
+      print('   Enumerator ID: ${authProvider.user?.id}');
+
+      // Format 1: Dengan location sebagai object nested
       final respondentData = {
-        'name': _nameController.text.trim(),
-        'phone': _phoneController.text.trim().isEmpty
-            ? null
-            : _phoneController.text.trim(),
-        'address': _addressController.text.trim().isEmpty
-            ? null
-            : _addressController.text.trim(),
+        'name': name,
+        'phone': phone,
+        'address': address,
         'latitude': _selectedLocation!.latitude,
         'longitude': _selectedLocation!.longitude,
+        // Juga kirim dalam format nested untuk kompatibilitas
+        'location': {
+          'latitude': _selectedLocation!.latitude,
+          'longitude': _selectedLocation!.longitude,
+        },
         'status': 'pending',
         'survey_id': surveyProvider.selectedSurveyId,
         'enumerator_id': authProvider.user?.id,
       };
+
+      print('📦 Request data: $respondentData');
 
       await ApiService.instance.createRespondent(respondentData);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Respondent added successfully!'),
+            content: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 12),
+                Text('Respondent added successfully!'),
+              ],
+            ),
             backgroundColor: Colors.green,
           ),
         );
         Navigator.pop(context, true);
       }
     } catch (e) {
+      print('❌ Error adding respondent: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error adding respondent: $e'),
+            content: Row(
+              children: [
+                const Icon(Icons.error, color: Colors.white),
+                const SizedBox(width: 12),
+                Expanded(child: Text('Error: ${e.toString()}')),
+              ],
+            ),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
           ),
         );
       }
@@ -319,7 +357,6 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
   Widget build(BuildContext context) {
     // Get safe area paddings
     final bottomPadding = MediaQuery.of(context).padding.bottom;
-    final topPadding = MediaQuery.of(context).padding.top;
 
     return Scaffold(
       appBar: AppBar(

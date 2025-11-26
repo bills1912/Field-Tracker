@@ -100,7 +100,7 @@ class AuthProvider with ChangeNotifier {
       }
 
       // Check for token - jika ada token, anggap berhasil
-      if (response.containsKey('token') && response['token'] != null) {
+      if (response.containsKey('access_token') && response['access_token'] != null) {
         success = true;
         print('✓ Found token field');
       }
@@ -108,13 +108,13 @@ class AuthProvider with ChangeNotifier {
       print('');
       print('📊 ANALYSIS:');
       print('  - Success status: $success');
-      print('  - Has token: ${response.containsKey('token')}');
+      print('  - Has token: ${response.containsKey('access_token')}');
       print('  - Has user: ${response.containsKey('user')}');
       print('');
 
       if (success) {
         // Extract token
-        _token = response['token']?.toString();
+        _token = response['access_token']?.toString();
 
         if (_token == null || _token!.isEmpty) {
           throw Exception('Token tidak ditemukan dalam response API');

@@ -23,7 +23,7 @@ class _SplashScreenState extends State<SplashScreen>
 
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1500),
+      duration: const Duration(milliseconds: 5000),
     );
 
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
@@ -46,7 +46,7 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _checkLoginStatus() async {
-    await Future.delayed(const Duration(seconds: 2));
+    await Future.delayed(const Duration(seconds: 4));
 
     if (!mounted) return;
 
@@ -112,11 +112,17 @@ class _SplashScreenState extends State<SplashScreen>
                 children: [
                   // Logo or App Icon
                   Container(
-                    width: 140,
-                    height: 140,
+                    width: 200,
+                    height: 200,
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      shape: BoxShape.circle,
+                      shape: BoxShape.rectangle,
+                      borderRadius: BorderRadius.only(
+                        topLeft: Radius.circular(40.0),
+                        topRight: Radius.circular(40.0),
+                        bottomLeft: Radius.circular(40.0),
+                        bottomRight: Radius.circular(40.0),
+                      ),
                       boxShadow: [
                         BoxShadow(
                           color: Colors.black.withOpacity(0.2),
@@ -125,10 +131,12 @@ class _SplashScreenState extends State<SplashScreen>
                         ),
                       ],
                     ),
-                    child: const Icon(
-                      Icons.assignment,
-                      size: 70,
-                      color: Color(0xFF0B6BA8),
+                    child: Padding(
+                      padding: const EdgeInsets.all(20), // <-- Tambah padding jika perlu
+                      child: Image.asset(
+                        'assets/icons/icon.png',
+                        fit: BoxFit.contain,
+                      ),
                     ),
                   ),
 
@@ -136,7 +144,7 @@ class _SplashScreenState extends State<SplashScreen>
 
                   // App Name
                   const Text(
-                    'FASIH',
+                    'SINTONG',
                     style: TextStyle(
                       fontSize: 42,
                       fontWeight: FontWeight.bold,
