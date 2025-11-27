@@ -107,7 +107,7 @@ flutter:
   assets:
     - assets/images/
     - assets/icons/
-    - assets/geom/paluta_kec.geojson
+    - assets/geom/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

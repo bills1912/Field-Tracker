@@ -11,6 +11,8 @@ class Survey {
   final String createdBy;
   final DateTime createdAt;
   final bool isActive;
+  final String? geojsonPath; // Path to GeoJSON file in assets
+  final String? geojsonFilterField; // Field name to filter regions (e.g., "ADM3_EN")
 
   Survey({
     required this.id,
@@ -25,6 +27,8 @@ class Survey {
     required this.createdBy,
     required this.createdAt,
     this.isActive = true,
+    this.geojsonPath,
+    this.geojsonFilterField,
   });
 
   factory Survey.fromJson(Map<String, dynamic> json) {
@@ -41,6 +45,8 @@ class Survey {
       createdBy: json['created_by'],
       createdAt: DateTime.parse(json['created_at']),
       isActive: json['is_active'] ?? true,
+      geojsonPath: json['geojson_path'],
+      geojsonFilterField: json['geojson_filter_field'],
     );
   }
 
@@ -58,6 +64,8 @@ class Survey {
       'created_by': createdBy,
       'created_at': createdAt.toIso8601String(),
       'is_active': isActive,
+      'geojson_path': geojsonPath,
+      'geojson_filter_field': geojsonFilterField,
     };
   }
 }

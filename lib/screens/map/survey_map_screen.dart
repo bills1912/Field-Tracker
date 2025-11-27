@@ -5,6 +5,7 @@ import 'package:field_tracker/models/user.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_map_geojson/flutter_map_geojson.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import 'package:geolocator/geolocator.dart';
@@ -22,7 +23,7 @@ enum BaseMapType {
   googleHybrid,
 }
 
-/// Survey-specific Map Screen with respondent filtering
+/// Survey-specific Map Screen with respondent filtering and GeoJSON support
 class SurveyMapScreen extends StatefulWidget {
   final Survey survey;
   final RespondentStatus? statusFilter;
@@ -55,6 +56,14 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
   double? _distanceToTarget;
   double? _bearingToTarget;
 
+  // GeoJSON state
+  GeoJsonParser? _geoJsonParser;
+  bool _isLoadingGeoJson = false;
+  bool _showGeoJson = true;
+  List<String> _availableRegions = [];
+  String? _selectedRegion;
+  bool _isRegionSelectorOpen = false;
+
   // Tile URLs
   static const String _googleSatelliteUrl =
       'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}';
@@ -70,12 +79,362 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
     _currentFilter = widget.statusFilter;
     _loadMapData();
     _getCurrentLocation();
+    _loadGeoJson();
   }
 
   @override
   void dispose() {
     _positionSubscription?.cancel();
     super.dispose();
+  }
+
+  /// Load GeoJSON data for the survey
+  Future<void> _loadGeoJson() async {
+    if (widget.survey.geojsonPath == null) {
+      debugPrint('ℹ️ No GeoJSON path for this survey');
+      return;
+    }
+
+    setState(() => _isLoadingGeoJson = true);
+
+    try {
+      debugPrint('📍 Loading GeoJSON from: ${widget.survey.geojsonPath}');
+
+      // Load GeoJSON from assets
+      final String geoJsonString = await rootBundle.loadString(widget.survey.geojsonPath!);
+
+      // Parse GeoJSON
+      _geoJsonParser = GeoJsonParser(
+        defaultPolygonFillColor: Colors.blue.withOpacity(0.1),
+        defaultPolygonBorderColor: Colors.blue,
+        defaultPolygonBorderStroke: 2.0,
+      );
+
+      _geoJsonParser!.parseGeoJsonAsString(geoJsonString);
+
+      // Extract available regions from GeoJSON
+      if (widget.survey.geojsonFilterField != null) {
+        _extractRegionsFromGeoJson(geoJsonString);
+      }
+
+      debugPrint('✅ GeoJSON loaded successfully');
+      debugPrint('   Polygons: ${_geoJsonParser!.polygons.length}');
+      debugPrint('   Available regions: ${_availableRegions.length}');
+
+      setState(() => _isLoadingGeoJson = false);
+    } catch (e) {
+      debugPrint('❌ Error loading GeoJSON: $e');
+      setState(() => _isLoadingGeoJson = false);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading map boundary: $e'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    }
+  }
+
+  /// Extract region names from GeoJSON features
+  void _extractRegionsFromGeoJson(String geoJsonString) {
+    try {
+      final Map<String, dynamic> geoJson =
+      Map<String, dynamic>.from(
+          const {} is Map<String, dynamic>
+              ? {}
+              : {}
+      );
+
+      // Parse manually to get feature properties
+      final decoded = geoJsonString;
+      final RegExp featureRegex = RegExp(
+        r'"properties"\s*:\s*{[^}]*"' +
+            (widget.survey.geojsonFilterField ?? 'ADM3_EN') +
+            r'"\s*:\s*"([^"]+)"',
+      );
+
+      final matches = featureRegex.allMatches(decoded);
+      final Set<String> regions = {};
+
+      for (var match in matches) {
+        if (match.groupCount >= 1) {
+          final regionName = match.group(1);
+          if (regionName != null && regionName.isNotEmpty) {
+            regions.add(regionName);
+          }
+        }
+      }
+
+      _availableRegions = regions.toList()..sort();
+      debugPrint('📊 Extracted ${_availableRegions.length} regions');
+    } catch (e) {
+      debugPrint('⚠️ Error extracting regions: $e');
+    }
+  }
+
+  /// Filter GeoJSON to show only selected region
+  Future<void> _filterGeoJsonByRegion(String? regionName) async {
+    if (widget.survey.geojsonPath == null || regionName == null) {
+      // Show all regions
+      _selectedRegion = null;
+      await _loadGeoJson();
+      return;
+    }
+
+    setState(() {
+      _isLoadingGeoJson = true;
+      _selectedRegion = regionName;
+    });
+
+    try {
+      final String geoJsonString = await rootBundle.loadString(widget.survey.geojsonPath!);
+
+      // Parse and filter
+      _geoJsonParser = GeoJsonParser(
+        defaultPolygonFillColor: Colors.blue.withOpacity(0.2),
+        defaultPolygonBorderColor: Colors.blue,
+        defaultPolygonBorderStroke: 2.5,
+      );
+
+      // Filter GeoJSON to only include selected region
+      final filteredGeoJson = _filterGeoJsonString(
+        geoJsonString,
+        widget.survey.geojsonFilterField ?? 'ADM3_EN',
+        regionName,
+      );
+
+      _geoJsonParser!.parseGeoJsonAsString(filteredGeoJson);
+
+      // Zoom to the selected region
+      _zoomToRegion(regionName);
+
+      setState(() => _isLoadingGeoJson = false);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Showing: $regionName'),
+            backgroundColor: const Color(0xFF2196F3),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Error filtering GeoJSON: $e');
+      setState(() => _isLoadingGeoJson = false);
+    }
+  }
+
+  /// Filter GeoJSON string to include only specified region
+  String _filterGeoJsonString(String geoJsonString, String fieldName, String regionName) {
+    try {
+      // Simple string-based filtering for the GeoJSON
+      // This creates a new FeatureCollection with only matching features
+
+      final RegExp featurePattern = RegExp(
+        r'\{[^{}]*"type"\s*:\s*"Feature"[^{}]*"properties"\s*:\s*\{[^}]*"' +
+            fieldName +
+            r'"\s*:\s*"' +
+            RegExp.escape(regionName) +
+            r'"[^}]*\}[^{}]*"geometry"[^{}]*\{[^{}]*\}[^{}]*\}',
+        multiLine: true,
+        dotAll: true,
+      );
+
+      final matches = featurePattern.allMatches(geoJsonString);
+
+      if (matches.isEmpty) {
+        return geoJsonString; // Return original if no match
+      }
+
+      final features = matches.map((m) => m.group(0)).join(',');
+
+      return '''
+{
+  "type": "FeatureCollection",
+  "features": [$features]
+}
+''';
+    } catch (e) {
+      debugPrint('⚠️ Error in filter: $e');
+      return geoJsonString;
+    }
+  }
+
+  /// Zoom map to selected region
+  void _zoomToRegion(String regionName) {
+    if (_geoJsonParser == null || _geoJsonParser!.polygons.isEmpty) return;
+
+    try {
+      // Calculate bounds of all polygons in the selected region
+      double minLat = double.infinity;
+      double maxLat = double.negativeInfinity;
+      double minLon = double.infinity;
+      double maxLon = double.negativeInfinity;
+
+      for (var polygon in _geoJsonParser!.polygons) {
+        for (var point in polygon.points) {
+          minLat = min(minLat, point.latitude);
+          maxLat = max(maxLat, point.latitude);
+          minLon = min(minLon, point.longitude);
+          maxLon = max(maxLon, point.longitude);
+        }
+      }
+
+      if (minLat.isFinite && maxLat.isFinite && minLon.isFinite && maxLon.isFinite) {
+        final bounds = LatLngBounds(
+          LatLng(minLat, minLon),
+          LatLng(maxLat, maxLon),
+        );
+
+        _mapController.fitBounds(
+          bounds,
+          options: const FitBoundsOptions(
+            padding: EdgeInsets.all(50),
+            maxZoom: 14,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('⚠️ Error zooming to region: $e');
+    }
+  }
+
+  /// Show region selector dialog
+  void _showRegionSelector() {
+    if (_availableRegions.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No regions available'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        minChildSize: 0.4,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (context, scrollController) => Column(
+          children: [
+            // Header
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      const Icon(Icons.layers, color: Color(0xFF2196F3)),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Text(
+                          'Select Region',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      if (_selectedRegion != null)
+                        TextButton(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            _filterGeoJsonByRegion(null);
+                          },
+                          child: const Text('Show All'),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            // Region list
+            Expanded(
+              child: ListView.builder(
+                controller: scrollController,
+                padding: const EdgeInsets.all(16),
+                itemCount: _availableRegions.length,
+                itemBuilder: (context, index) {
+                  final regionName = _availableRegions[index];
+                  final isSelected = _selectedRegion == regionName;
+
+                  return Card(
+                    elevation: isSelected ? 4 : 1,
+                    margin: const EdgeInsets.only(bottom: 8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: isSelected
+                          ? const BorderSide(color: Color(0xFF2196F3), width: 2)
+                          : BorderSide.none,
+                    ),
+                    child: ListTile(
+                      leading: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? const Color(0xFF2196F3)
+                              : Colors.grey[200],
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(
+                          Icons.location_on,
+                          color: isSelected ? Colors.white : Colors.grey[600],
+                        ),
+                      ),
+                      title: Text(
+                        regionName,
+                        style: TextStyle(
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                          color: isSelected ? const Color(0xFF2196F3) : null,
+                        ),
+                      ),
+                      trailing: isSelected
+                          ? const Icon(Icons.check_circle, color: Color(0xFF2196F3))
+                          : const Icon(Icons.chevron_right, color: Colors.grey),
+                      onTap: () {
+                        Navigator.pop(context);
+                        _filterGeoJsonByRegion(regionName);
+                      },
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _loadMapData() async {
@@ -139,8 +498,6 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
       );
       setState(() => _myPosition = position);
 
-      // Center map based on respondents or user location
-      // _centerMapOnContent();
       _mapController.move(
         LatLng(position.latitude, position.longitude),
         13,
@@ -769,19 +1126,31 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
     required IconData icon,
     Color? backgroundColor,
     Color? iconColor,
+    Widget? badge,
   }) {
     return SizedBox(
       width: _mainFabSize,              // samakan lebar dengan FAB utama
       child: Center(
-        child: FloatingActionButton(
-          heroTag: heroTag,
-          mini: true,
-          backgroundColor: backgroundColor ?? Colors.white,
-          onPressed: onPressed,
-          child: Icon(
-            icon,
-            color: iconColor ?? const Color(0xFF2196F3),
-          ),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            FloatingActionButton(
+              heroTag: heroTag,
+              mini: true,
+              backgroundColor: backgroundColor ?? Colors.white,
+              onPressed: onPressed,
+              child: Icon(
+                icon,
+                color: iconColor ?? const Color(0xFF2196F3),
+              ),
+            ),
+            if (badge != null)
+              Positioned(
+                right: -4,
+                top: -4,
+                child: badge,
+              ),
+          ],
         ),
       ),
     );
@@ -1003,6 +1372,46 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
               : _buildListView(),
           if (_isNavigating && _navigationTarget != null)
             _buildNavigationPanel(),
+          // Loading indicator for GeoJSON
+          if (_isLoadingGeoJson)
+            Positioned(
+              top: 16,
+              left: 16,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          const Color(0xFF2196F3),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Text(
+                      'Loading boundary...',
+                      style: TextStyle(fontSize: 14),
+                    ),
+                  ],
+                ),
+              ),
+            ),
         ],
       ),
       floatingActionButton: _viewMode == 'map' && !_isNavigating
@@ -1011,6 +1420,62 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           if (_isFabOpen) ...[
+            // GeoJSON Region Selector - Only show if GeoJSON is available
+            if (widget.survey.geojsonPath != null && _availableRegions.isNotEmpty)
+              _buildMiniFab(
+                heroTag: 'region_selector',
+                backgroundColor: _selectedRegion != null
+                    ? const Color(0xFF2196F3)
+                    : Colors.white,
+                onPressed: _showRegionSelector,
+                icon: Icons.map,
+                iconColor: _selectedRegion != null
+                    ? Colors.white
+                    : const Color(0xFF2196F3),
+                badge: _selectedRegion != null
+                    ? Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: const BoxDecoration(
+                    color: Colors.green,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.check,
+                    size: 12,
+                    color: Colors.white,
+                  ),
+                )
+                    : null,
+              ),
+            if (widget.survey.geojsonPath != null && _availableRegions.isNotEmpty)
+              const SizedBox(height: 8),
+            // GeoJSON Toggle - Only show if GeoJSON is available
+            if (widget.survey.geojsonPath != null)
+              _buildMiniFab(
+                heroTag: 'geojson_toggle',
+                backgroundColor: _showGeoJson
+                    ? const Color(0xFF4CAF50)
+                    : Colors.white,
+                onPressed: () {
+                  setState(() => _showGeoJson = !_showGeoJson);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        _showGeoJson
+                            ? 'Boundary shown'
+                            : 'Boundary hidden',
+                      ),
+                      duration: const Duration(seconds: 1),
+                    ),
+                  );
+                },
+                icon: Icons.border_outer,
+                iconColor: _showGeoJson
+                    ? Colors.white
+                    : const Color(0xFF2196F3),
+              ),
+            if (widget.survey.geojsonPath != null)
+              const SizedBox(height: 8),
             _buildMiniFab(
               heroTag: 'filter',
               backgroundColor: _currentFilter != null
@@ -1224,6 +1689,11 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
               userAgentPackageName: 'com.fieldtracker.app',
               maxZoom: 20,
             ),
+            // GeoJSON Polygon Layer
+            if (_showGeoJson && _geoJsonParser != null && !_isLoadingGeoJson)
+              PolygonLayer(
+                polygons: _geoJsonParser!.polygons,
+              ),
             // Navigation line
             if (_isNavigating &&
                 _myPosition != null &&
@@ -1310,7 +1780,7 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
           ],
         ),
         // Info bar at top
-        if (!_isNavigating)
+        if (!_isNavigating && !_isLoadingGeoJson)
           Positioned(
             top: 16,
             left: 16,
@@ -1337,12 +1807,26 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text(
-                      '${_filteredRespondents.length} Responden (${_getFilterLabel()})',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '${_filteredRespondents.length} Responden (${_getFilterLabel()})',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        if (_selectedRegion != null)
+                          Text(
+                            'Region: $_selectedRegion',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                   Container(
@@ -1747,6 +2231,12 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
             _buildLegendItem(
                 const Color(0xFF4CAF50), 'Completed', Icons.location_on),
             _buildLegendItem(Colors.blue, 'Your Location', Icons.person),
+            if (widget.survey.geojsonPath != null)
+              _buildLegendItem(
+                Colors.blue.withOpacity(0.3),
+                'Survey Boundary',
+                Icons.border_outer,
+              ),
           ],
         ),
         actions: [
