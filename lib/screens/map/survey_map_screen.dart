@@ -46,6 +46,7 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
   String _viewMode = 'map'; // 'map' or 'list'
   BaseMapType _currentBaseMap = BaseMapType.openStreetMap;
   RespondentStatus? _currentFilter;
+  bool _isFabOpen = false;
 
   // Navigation state
   bool _isNavigating = false;
@@ -61,6 +62,7 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
       'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}';
   static const String _openStreetMapUrl =
       'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+  static const double _mainFabSize = 56.0;
 
   @override
   void initState() {
@@ -728,6 +730,30 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
     );
   }
 
+  Widget _buildMiniFab({
+    required String heroTag,
+    required VoidCallback onPressed,
+    required IconData icon,
+    Color? backgroundColor,
+    Color? iconColor,
+  }) {
+    return SizedBox(
+      width: _mainFabSize,              // samakan lebar dengan FAB utama
+      child: Center(
+        child: FloatingActionButton(
+          heroTag: heroTag,
+          mini: true,
+          backgroundColor: backgroundColor ?? Colors.white,
+          onPressed: onPressed,
+          child: Icon(
+            icon,
+            color: iconColor ?? const Color(0xFF2196F3),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthProvider>().user;
@@ -801,67 +827,67 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
       ),
       floatingActionButton: _viewMode == 'map' && !_isNavigating
           ? Column(
-        mainAxisAlignment: MainAxisAlignment.end,
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          FloatingActionButton(
-            heroTag: 'filter',
-            mini: true,
-            backgroundColor: _currentFilter != null
-                ? _getMarkerColor(_currentFilter!)
-                : Colors.white,
-            onPressed: _showFilterSheet,
-            child: Icon(
-              Icons.filter_list,
-              color: _currentFilter != null
+          if (_isFabOpen) ...[
+            _buildMiniFab(
+              heroTag: 'filter',
+              backgroundColor: _currentFilter != null
+                  ? _getMarkerColor(_currentFilter!)
+                  : Colors.white,
+              onPressed: _showFilterSheet,
+              icon: Icons.filter_list,
+              iconColor: _currentFilter != null
                   ? Colors.white
                   : const Color(0xFF2196F3),
             ),
-          ),
-          const SizedBox(height: 8),
-          FloatingActionButton(
-            heroTag: 'basemap',
-            mini: true,
-            backgroundColor: Colors.white,
-            onPressed: _showBaseMapSelector,
-            child: Icon(
-              _getBaseMapIcon(_currentBaseMap),
-              color: const Color(0xFF2196F3),
+            const SizedBox(height: 8),
+            _buildMiniFab(
+              heroTag: 'basemap',
+              backgroundColor: Colors.white,
+              onPressed: _showBaseMapSelector,
+              icon: _getBaseMapIcon(_currentBaseMap),
+              iconColor: const Color(0xFF2196F3),
             ),
-          ),
-          const SizedBox(height: 8),
-          FloatingActionButton(
-            heroTag: 'location',
-            mini: true,
-            backgroundColor: Colors.white,
-            onPressed: _getCurrentLocation,
-            child: const Icon(
-              Icons.my_location,
-              color: Color(0xFF2196F3),
+            const SizedBox(height: 8),
+            _buildMiniFab(
+              heroTag: 'location',
+              backgroundColor: Colors.white,
+              onPressed: _getCurrentLocation,
+              icon: Icons.my_location,
+              iconColor: Color(0xFF2196F3),
             ),
-          ),
-          const SizedBox(height: 8),
-          FloatingActionButton(
-            heroTag: 'fit',
-            mini: true,
-            backgroundColor: Colors.white,
-            onPressed: _centerMapOnContent,
-            child: const Icon(
-              Icons.fit_screen,
-              color: Color(0xFF2196F3),
+            const SizedBox(height: 8),
+            _buildMiniFab(
+              heroTag: 'fit',
+              backgroundColor: Colors.white,
+              onPressed: _centerMapOnContent,
+              icon: Icons.fit_screen,
+              iconColor: Color(0xFF2196F3),
             ),
-          ),
-          const SizedBox(height: 8),
-          FloatingActionButton(
-            heroTag: 'legend',
-            mini: true,
-            backgroundColor: Colors.white,
-            onPressed: _showLegend,
-            child: const Icon(
-              Icons.info_outline,
-              color: Color(0xFF2196F3),
+            const SizedBox(height: 8),
+            _buildMiniFab(
+              heroTag: 'legend',
+              backgroundColor: Colors.white,
+              onPressed: _showLegend,
+              icon: Icons.info_outline,
+              iconColor: Color(0xFF2196F3),
             ),
-          ),
+            const SizedBox(height: 12),
         ],
+    FloatingActionButton(
+      heroTag: 'mainFab',
+      onPressed: () {
+      setState(() {
+      _isFabOpen = !_isFabOpen;
+      });
+      },
+      child: Icon(
+      _isFabOpen ? Icons.close : Icons.menu
+      ),
+    ),
+    ],
       )
           : null,
     );
