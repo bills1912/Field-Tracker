@@ -2,12 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/network_provider.dart';
-import '../../providers/fraud_detection_provider.dart'; // 🆕 NEW
+import '../../providers/fraud_detection_provider.dart';
 import '../surveys/surveys_list_screen.dart';
-import '../map/map_screen.dart';
 import '../chat/chat_screen.dart';
 import '../profile/profile_screen.dart';
-import '../fraud/fraud_detection_screen.dart'; // 🆕 NEW
+import '../fraud/fraud_detection_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -19,24 +18,24 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
 
-  // 🆕 UPDATED: Added FraudDetectionScreen to the list
+  // UPDATED: Removed MapScreen from the list - Map is now accessed per survey
   final List<Widget> _screens = [
     const SurveysListScreen(),
-    const MapScreen(),
-    const FraudDetectionScreen(), // 🆕 NEW - Replaced ChatScreen
+    const ChatScreen(), // Restored ChatScreen
+    const FraudDetectionScreen(),
     const ProfileScreen(),
   ];
 
   @override
   void initState() {
     super.initState();
-    // 🆕 NEW: Start fraud detection monitoring when screen loads
+    // Start fraud detection monitoring when screen loads
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeFraudDetection();
     });
   }
 
-  // 🆕 NEW: Initialize fraud detection
+  // Initialize fraud detection
   Future<void> _initializeFraudDetection() async {
     try {
       final fraudProvider = context.read<FraudDetectionProvider>();
@@ -56,7 +55,7 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     final networkProvider = context.watch<NetworkProvider>();
-    final fraudProvider = context.watch<FraudDetectionProvider>(); // 🆕 NEW
+    final fraudProvider = context.watch<FraudDetectionProvider>();
 
     return Scaffold(
       body: Stack(
@@ -109,7 +108,7 @@ class _MainScreenState extends State<MainScreen> {
         ],
       ),
 
-      // Bottom Navigation Bar
+      // Bottom Navigation Bar - UPDATED: Removed Map tab
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           boxShadow: [
@@ -137,13 +136,14 @@ class _MainScreenState extends State<MainScreen> {
               ),
               label: 'Surveys',
             ),
+            // Restored Chat tab
             BottomNavigationBarItem(
               icon: Icon(
-                _currentIndex == 1 ? Icons.map : Icons.map_outlined,
+                _currentIndex == 1 ? Icons.chat : Icons.chat_outlined,
               ),
-              label: 'Map',
+              label: 'Chat',
             ),
-            // 🆕 UPDATED: Changed from Chat to Security/Fraud
+            // Security/Fraud tab
             BottomNavigationBarItem(
               icon: Stack(
                 children: [
@@ -152,7 +152,7 @@ class _MainScreenState extends State<MainScreen> {
                         ? Icons.security
                         : Icons.security_outlined,
                   ),
-                  // 🆕 NEW: Show badge if fraud detected
+                  // Show badge if fraud detected
                   if (fraudProvider.totalFlagged > 0)
                     Positioned(
                       right: 0,
@@ -193,4 +193,4 @@ class _MainScreenState extends State<MainScreen> {
       ),
     );
   }
-}// TODO Implement this library.
+}
