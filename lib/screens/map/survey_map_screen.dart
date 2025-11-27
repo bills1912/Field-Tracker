@@ -252,6 +252,39 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
     }
   }
 
+  // ==================== VIEW MODE TOGGLE BUTTON ====================
+
+  Widget _buildViewModeButton({
+    required IconData icon,
+    required bool isSelected,
+    required VoidCallback onTap,
+    required String tooltip,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? Colors.white
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(
+            icon,
+            size: 20,
+            color: isSelected
+                ? const Color(0xFF2196F3)
+                : Colors.white.withOpacity(0.8),
+          ),
+        ),
+      ),
+    );
+  }
+
   // ==================== NAVIGATION METHODS ====================
 
   double _calculateDistance(
@@ -775,43 +808,190 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
           ],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.filter_list),
-            tooltip: 'Filter',
-            onPressed: _showFilterSheet,
-          ),
-          IconButton(
-            icon: const Icon(Icons.layers),
-            tooltip: 'Base Map',
-            onPressed: _showBaseMapSelector,
-          ),
-          IconButton(
-            icon: Icon(_viewMode == 'map' ? Icons.list : Icons.map),
-            onPressed: () {
-              setState(() {
-                _viewMode = _viewMode == 'map' ? 'list' : 'map';
-              });
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: networkProvider.isConnected ? _loadMapData : null,
-          ),
-          if (user?.role == UserRole.enumerator)
-            IconButton(
-              icon: const Icon(Icons.add_circle),
-              onPressed: () async {
-                final result = await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const AddRespondentScreen(),
-                  ),
-                );
-                if (result == true) {
-                  _loadMapData(); // Refresh data after adding
-                }
-              },
+          // View Mode Toggle
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(8),
             ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildViewModeButton(
+                  icon: Icons.map,
+                  isSelected: _viewMode == 'map',
+                  onTap: () => setState(() => _viewMode = 'map'),
+                  tooltip: 'Map View',
+                ),
+                _buildViewModeButton(
+                  icon: Icons.list,
+                  isSelected: _viewMode == 'list',
+                  onTap: () => setState(() => _viewMode = 'list'),
+                  tooltip: 'List View',
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 4),
+          // More Options Menu
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            tooltip: 'More Options',
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            offset: const Offset(0, 45),
+            onSelected: (value) async {
+              switch (value) {
+                case 'filter':
+                  _showFilterSheet();
+                  break;
+                case 'basemap':
+                  _showBaseMapSelector();
+                  break;
+                case 'refresh':
+                  if (networkProvider.isConnected) _loadMapData();
+                  break;
+                case 'add':
+                  final result = await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const AddRespondentScreen(),
+                    ),
+                  );
+                  if (result == true) {
+                    _loadMapData();
+                  }
+                  break;
+                case 'legend':
+                  _showLegend();
+                  break;
+              }
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem<String>(
+                value: 'filter',
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.filter_list,
+                      color: _currentFilter != null
+                          ? _getMarkerColor(_currentFilter!)
+                          : const Color(0xFF2196F3),
+                      size: 20,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Filter Responden'),
+                          Text(
+                            _getFilterLabel(),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              PopupMenuItem<String>(
+                value: 'basemap',
+                child: Row(
+                  children: [
+                    Icon(
+                      _getBaseMapIcon(_currentBaseMap),
+                      color: const Color(0xFF2196F3),
+                      size: 20,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Base Map'),
+                          Text(
+                            _getBaseMapName(_currentBaseMap),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
+              PopupMenuItem<String>(
+                value: 'refresh',
+                enabled: networkProvider.isConnected,
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.refresh,
+                      color: networkProvider.isConnected
+                          ? const Color(0xFF2196F3)
+                          : Colors.grey,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      'Refresh Data',
+                      style: TextStyle(
+                        color: networkProvider.isConnected
+                            ? null
+                            : Colors.grey,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const PopupMenuItem<String>(
+                value: 'legend',
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.info_outline,
+                      color: Color(0xFF2196F3),
+                      size: 20,
+                    ),
+                    SizedBox(width: 12),
+                    Text('Legend'),
+                  ],
+                ),
+              ),
+              if (user?.role == UserRole.enumerator) ...[
+                const PopupMenuDivider(),
+                const PopupMenuItem<String>(
+                  value: 'add',
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.add_circle,
+                        color: Color(0xFF4CAF50),
+                        size: 20,
+                      ),
+                      SizedBox(width: 12),
+                      Text(
+                        'Tambah Responden',
+                        style: TextStyle(
+                          color: Color(0xFF4CAF50),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
         ],
       ),
       body: Stack(
@@ -875,19 +1055,19 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
               iconColor: Color(0xFF2196F3),
             ),
             const SizedBox(height: 12),
+          ],
+          FloatingActionButton(
+            heroTag: 'mainFab',
+            onPressed: () {
+              setState(() {
+                _isFabOpen = !_isFabOpen;
+              });
+            },
+            child: Icon(
+                _isFabOpen ? Icons.close : Icons.menu
+            ),
+          ),
         ],
-    FloatingActionButton(
-      heroTag: 'mainFab',
-      onPressed: () {
-      setState(() {
-      _isFabOpen = !_isFabOpen;
-      });
-      },
-      child: Icon(
-      _isFabOpen ? Icons.close : Icons.menu
-      ),
-    ),
-    ],
       )
           : null,
     );
