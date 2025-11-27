@@ -1,6 +1,7 @@
 // lib/screens/map/survey_map_screen.dart
 import 'dart:async';
 import 'dart:math';
+import 'package:field_tracker/models/user.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -725,6 +726,7 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final user = context.watch<AuthProvider>().user;
     final networkProvider = context.watch<NetworkProvider>();
 
     return Scaffold(
@@ -765,6 +767,21 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
             icon: const Icon(Icons.refresh),
             onPressed: networkProvider.isConnected ? _loadMapData : null,
           ),
+          if (user?.role == UserRole.enumerator)
+            IconButton(
+              icon: const Icon(Icons.add_circle),
+              onPressed: () async {
+                final result = await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const AddRespondentScreen(),
+                  ),
+                );
+                if (result == true) {
+                  _loadMapData(); // Refresh data after adding
+                }
+              },
+            ),
         ],
       ),
       body: Stack(
