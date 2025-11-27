@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/network_provider.dart';
 import '../surveys/surveys_list_screen.dart';
-import '../map/map_screen.dart';
+// import '../map/map_screen.dart';
 import '../chat/chat_screen.dart';
 import '../profile/profile_screen.dart';
 
@@ -19,7 +19,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   final List<Widget> _screens = [
     const SurveysListScreen(),
-    const MapScreen(),
+    // const MapScreen(),
     const ChatScreen(),
     const ProfileScreen(),
   ];
