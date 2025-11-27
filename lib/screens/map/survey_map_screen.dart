@@ -138,7 +138,11 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
       setState(() => _myPosition = position);
 
       // Center map based on respondents or user location
-      _centerMapOnContent();
+      // _centerMapOnContent();
+      _mapController.move(
+        LatLng(position.latitude, position.longitude),
+        13,
+      );
     } catch (e) {
       print('Error getting current location: $e');
     }
