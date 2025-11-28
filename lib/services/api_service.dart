@@ -13,7 +13,7 @@ import '../models/survey_stats.dart';
 import 'storage_service.dart';
 
 class ApiService {
-  static const String baseUrl = 'https://fieldtrack-15.preview.emergentagent.com/api';
+  static const String baseUrl = 'https://fieldtrack-15.emergent.host/api';
 
   static ApiService? _instance;
   static ApiService get instance => _instance ??= ApiService._();

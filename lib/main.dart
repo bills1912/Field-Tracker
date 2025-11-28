@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:workmanager/workmanager.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 // Services
 import 'services/storage_service.dart';
@@ -32,6 +33,8 @@ void main() async {
 
   // Initialize services
   await _initializeServices();
+
+  await dotenv.load(fileName: ".env");
 
   runApp(const MyApp());
 }

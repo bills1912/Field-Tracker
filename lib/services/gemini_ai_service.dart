@@ -1,4 +1,5 @@
 import 'package:google_generative_ai/google_generative_ai.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter/foundation.dart';
 
 class GeminiAIService {
@@ -12,13 +13,13 @@ class GeminiAIService {
   ChatSession? _chatSession;
 
   // ⚠️ Masukkan API Key
-  static const String _apiKey = 'AIzaSyDMCTSiuH-RhLWLrCKz51bmcf0bZQrSJMY';
 
   /// Inisialisasi Model saat aplikasi mulai
   void initialize() {
+    final String apiKey = dotenv.env['GEMINI_API_KEY'] ?? "";
     _model = GenerativeModel(
       model: 'gemini-2.5-flash', // Model cepat & hemat untuk mobile
-      apiKey: _apiKey,
+      apiKey: apiKey,
       // Instruksi agar AI berperan sebagai asisten survei
       systemInstruction: Content.system(
         '''

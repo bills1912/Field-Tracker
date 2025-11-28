@@ -83,6 +83,9 @@ dependencies:
   # Gemini Service
   google_generative_ai: ^0.4.7
 
+  #ENV
+  flutter_dotenv: ^6.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -111,6 +114,7 @@ flutter:
     - assets/images/
     - assets/icons/
     - assets/geom/
+    - .env
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

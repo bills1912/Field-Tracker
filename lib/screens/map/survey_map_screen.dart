@@ -1428,7 +1428,7 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
                     ? const Color(0xFF2196F3)
                     : Colors.white,
                 onPressed: _showRegionSelector,
-                icon: Icons.map,
+                icon: Icons.location_pin,
                 iconColor: _selectedRegion != null
                     ? Colors.white
                     : const Color(0xFF2196F3),
