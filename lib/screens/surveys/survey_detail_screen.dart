@@ -60,10 +60,15 @@ class _SurveyDetailScreenState extends State<SurveyDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final networkProvider = context.watch<NetworkProvider>();
+    final bottomPadding = MediaQuery.of(context).padding.bottom;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.survey.title),
+        title: Text(
+          widget.survey.title,
+          style: const TextStyle(fontSize: 18),
+          overflow: TextOverflow.ellipsis,
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -73,21 +78,48 @@ class _SurveyDetailScreenState extends State<SurveyDetailScreen> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildInfoCard(),
-            const SizedBox(height: 16),
-            if (_stats != null) _buildStatsGrid(),
-            const SizedBox(height: 16),
-            if (_stats != null) _buildProgressSection(),
-            const SizedBox(height: 24),
-            // Navigate to Map Button
-            _buildNavigateToMapButton(),
-          ],
-        ),
+          : Column(
+        children: [
+          // Scrollable content
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildInfoCard(),
+                  const SizedBox(height: 16),
+                  if (_stats != null) _buildStatsGrid(),
+                  const SizedBox(height: 16),
+                  if (_stats != null) _buildProgressSection(),
+                  // Extra padding at bottom for safe scrolling
+                  const SizedBox(height: 16),
+                ],
+              ),
+            ),
+          ),
+          // Fixed bottom button - always visible
+          Container(
+            width: double.infinity,
+            padding: EdgeInsets.only(
+              left: 16,
+              right: 16,
+              top: 12,
+              bottom: 12 + bottomPadding,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 8,
+                  offset: const Offset(0, -2),
+                ),
+              ],
+            ),
+            child: _buildNavigateToMapButton(),
+          ),
+        ],
       ),
     );
   }
@@ -127,7 +159,6 @@ class _SurveyDetailScreenState extends State<SurveyDetailScreen> {
             ],
             const SizedBox(height: 16),
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Expanded(
                   child: Column(
@@ -170,55 +201,63 @@ class _SurveyDetailScreenState extends State<SurveyDetailScreen> {
   }
 
   Widget _buildStatsGrid() {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return GridView.count(
-          crossAxisCount: 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-          childAspectRatio: 1.3,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // First row - Total and Pending
+        Row(
           children: [
-            // Total - tap to show all respondents
-            _buildStatCard(
-              'Total',
-              _stats!.totalRespondents.toString(),
-              Icons.assignment,
-              const Color(0xFF2196F3),
-              const Color(0xFFE3F2FD),
-              onTap: () => _navigateToMap(), // Show all
+            Expanded(
+              child: _buildStatCard(
+                'Total',
+                _stats!.totalRespondents.toString(),
+                Icons.assignment,
+                const Color(0xFF2196F3),
+                const Color(0xFFE3F2FD),
+                onTap: () => _navigateToMap(),
+              ),
             ),
-            // Pending - tap to show pending respondents
-            _buildStatCard(
-              'Pending',
-              _stats!.pending.toString(),
-              Icons.pending,
-              const Color(0xFFF44336),
-              const Color(0xFFFFEBEE),
-              onTap: () => _navigateToMap(statusFilter: RespondentStatus.pending),
-            ),
-            // In Progress - tap to show in progress respondents
-            _buildStatCard(
-              'In Progress',
-              _stats!.inProgress.toString(),
-              Icons.hourglass_empty,
-              const Color(0xFFFF9800),
-              const Color(0xFFFFF3E0),
-              onTap: () => _navigateToMap(statusFilter: RespondentStatus.in_progress),
-            ),
-            // Completed - tap to show completed respondents
-            _buildStatCard(
-              'Completed',
-              _stats!.completed.toString(),
-              Icons.check_circle,
-              const Color(0xFF4CAF50),
-              const Color(0xFFE8F5E9),
-              onTap: () => _navigateToMap(statusFilter: RespondentStatus.completed),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildStatCard(
+                'Pending',
+                _stats!.pending.toString(),
+                Icons.pending,
+                const Color(0xFFF44336),
+                const Color(0xFFFFEBEE),
+                onTap: () => _navigateToMap(statusFilter: RespondentStatus.pending),
+              ),
             ),
           ],
-        );
-      },
+        ),
+        const SizedBox(height: 12),
+        // Second row - In Progress and Completed
+        Row(
+          children: [
+            Expanded(
+              child: _buildStatCard(
+                'In Progress',
+                _stats!.inProgress.toString(),
+                Icons.hourglass_empty,
+                const Color(0xFFFF9800),
+                const Color(0xFFFFF3E0),
+                onTap: () => _navigateToMap(statusFilter: RespondentStatus.in_progress),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildStatCard(
+                'Completed',
+                _stats!.completed.toString(),
+                Icons.check_circle,
+                const Color(0xFF4CAF50),
+                const Color(0xFFE8F5E9),
+                onTap: () => _navigateToMap(statusFilter: RespondentStatus.completed),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -237,34 +276,35 @@ class _SurveyDetailScreenState extends State<SurveyDetailScreen> {
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
             children: [
               Icon(icon, size: 28, color: iconColor),
               const SizedBox(height: 8),
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF333333),
-                  ),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF333333),
                 ),
               ),
               const SizedBox(height: 4),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    label,
-                    textAlign: TextAlign.center,
-                    style:
-                    const TextStyle(fontSize: 12, color: Color(0xFF666666)),
-                    overflow: TextOverflow.ellipsis,
+                  Flexible(
+                    child: Text(
+                      label,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF666666),
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                   const SizedBox(width: 4),
                   Icon(
@@ -284,7 +324,7 @@ class _SurveyDetailScreenState extends State<SurveyDetailScreen> {
   Widget _buildProgressSection() {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

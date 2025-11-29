@@ -11,6 +11,9 @@ import '../../providers/fraud_detection_provider.dart'; // 🆕 NEW
 import '../../services/api_service.dart';
 import '../../widgets/fraud_detection_widgets.dart'; // 🆕 NEW
 import '../../models/location_fraud_result.dart'; // 🆕 NEW
+import 'dart:convert';
+import 'package:flutter/services.dart'; // Untuk rootBundle
+import 'package:latlong2/latlong.dart'; // Pastikan ini ada
 
 enum BaseMapType {
   openStreetMap,
@@ -19,7 +22,8 @@ enum BaseMapType {
 }
 
 class AddRespondentScreen extends StatefulWidget {
-  const AddRespondentScreen({super.key});
+  final String? geojsonPath;
+  const AddRespondentScreen({super.key, this.geojsonPath,});
 
   @override
   State<AddRespondentScreen> createState() => _AddRespondentScreenState();
@@ -28,6 +32,10 @@ class AddRespondentScreen extends StatefulWidget {
 class _AddRespondentScreenState extends State<AddRespondentScreen> {
   final _formKey = GlobalKey<FormState>();
   final MapController _mapController = MapController();
+  final _regionCodeController = TextEditingController();
+  bool _isRegionCodeEditable = false;
+  List<Map<String, dynamic>> _loadedPolygons = [];
+  List<Polygon> _visualPolygons = [];
 
   // Form Controllers
   final _nameController = TextEditingController();
@@ -61,6 +69,7 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
   void initState() {
     super.initState();
     _getCurrentLocation();
+    _loadGeoJsonData();
   }
 
   @override
@@ -68,6 +77,7 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
     _nameController.dispose();
     _phoneController.dispose();
     _addressController.dispose();
+    _regionCodeController.dispose();
     super.dispose();
   }
 
@@ -91,15 +101,18 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
         desiredAccuracy: LocationAccuracy.high,
       );
 
+      final latLng = LatLng(position.latitude, position.longitude);
+
       setState(() {
         _currentPosition = position;
         if (_useCurrentLocation) {
-          _selectedLocation = LatLng(position.latitude, position.longitude);
+          _selectedLocation = latLng;
         }
       });
 
       if (_selectedLocation != null) {
         _mapController.move(_selectedLocation!, 17);
+        _detectRegionFromLocation(_selectedLocation!);
       }
 
       // 🆕 NEW: Validate location after getting it
@@ -367,9 +380,141 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
       _useCurrentLocation = false;
       _bypassFraudWarning = false; // Reset bypass when location changes
     });
+    _detectRegionFromLocation(point);
 
     // 🆕 NEW: Validate new location
     _validateCurrentLocation();
+  }
+
+  Future<void> _loadGeoJsonData() async {
+    // Pastikan widget.geojsonPath dilempar dari screen sebelumnya
+    if (widget.geojsonPath == null) return;
+
+    try {
+      final String data = await rootBundle.loadString(widget.geojsonPath!);
+      final json = jsonDecode(data);
+
+      if (json['features'] != null) {
+        // List untuk Logika (Deteksi Otomatis)
+        final List<Map<String, dynamic>> logicPolys = [];
+        // List untuk Visual (Gambar di Peta)
+        final List<Polygon> visualPolys = [];
+
+        for (var feature in json['features']) {
+          final geometry = feature['geometry'];
+          final props = feature['properties'];
+          if (geometry == null || props == null) continue;
+
+          // Cek nama field kode wilayah (Default: ADM3_PCODE)
+          final String pcode = props['ADM3_PCODE']?.toString()
+              ?? props['region_code']?.toString()
+              ?? '';
+
+          if (pcode.isEmpty) continue;
+
+          // Helper function agar tidak menulis ulang kode pembuatan polygon
+          void addPolygon(List rawCoords) {
+            final points = _parsePolygonCoordinates(rawCoords);
+
+            // 1. Simpan untuk Logika Deteksi
+            logicPolys.add({
+              'code': pcode,
+              'points': points,
+            });
+
+            // 2. Simpan untuk Visualisasi Peta
+            visualPolys.add(
+              Polygon(
+                points: points,
+                color: Colors.blue.withOpacity(0.15), // Warna isi (Transparan)
+                borderColor: Colors.blue,             // Warna garis
+                borderStrokeWidth: 2.0,
+                isFilled: true,
+              ),
+            );
+          }
+
+          if (geometry['type'] == 'Polygon') {
+            addPolygon(geometry['coordinates'][0]);
+          } else if (geometry['type'] == 'MultiPolygon') {
+            for (var poly in geometry['coordinates']) {
+              addPolygon(poly[0]);
+            }
+          }
+        }
+
+        // Update State agar UI diperbarui
+        setState(() {
+          _loadedPolygons = logicPolys;
+          _visualPolygons = visualPolys; // Pastikan variabel ini ada di class state Anda
+        });
+
+        debugPrint('✅ Loaded ${_loadedPolygons.length} polygons for logic & visual');
+      }
+    } catch (e) {
+      debugPrint('⚠️ Error loading autofill data: $e');
+    }
+  }
+
+  List<LatLng> _parsePolygonCoordinates(List rawCoords) {
+    return rawCoords.map<LatLng>((coord) {
+      return LatLng(coord[1].toDouble(), coord[0].toDouble());
+    }).toList();
+  }
+
+  /// Deteksi wilayah berdasarkan titik koordinat
+  void _detectRegionFromLocation(LatLng point) {
+    if (_loadedPolygons.isEmpty) return;
+    // Jika user sedang edit manual, jangan timpa otomatis
+    if (_isRegionCodeEditable && _regionCodeController.text.isNotEmpty) return;
+
+    String foundCode = '';
+    for (var poly in _loadedPolygons) {
+      if (_isPointInPolygon(point, poly['points'])) {
+        foundCode = poly['code'];
+        break;
+      }
+    }
+
+    if (foundCode.isNotEmpty) {
+      setState(() => _regionCodeController.text = foundCode);
+
+      // Optional: Beri notifikasi kecil
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Wilayah terdeteksi: $foundCode'),
+        duration: const Duration(milliseconds: 800),
+        backgroundColor: Colors.green,
+      ));
+    }
+  }
+
+  /// Algoritma Point in Polygon
+  bool _isPointInPolygon(LatLng point, List<LatLng> polygon) {
+    int intersectCount = 0;
+    for (int j = 0; j < polygon.length - 1; j++) {
+      if (_rayCastIntersect(point, polygon[j], polygon[j + 1])) {
+        intersectCount++;
+      }
+    }
+    return (intersectCount % 2) == 1;
+  }
+
+  bool _rayCastIntersect(LatLng point, LatLng vertA, LatLng vertB) {
+    final double aY = vertA.latitude;
+    final double bY = vertB.latitude;
+    final double aX = vertA.longitude;
+    final double bX = vertB.longitude;
+    final double pY = point.latitude;
+    final double pX = point.longitude;
+
+    if ((aY > pY && bY > pY) || (aY < pY && bY < pY) || (aX < pX && bX < pX)) {
+      return false;
+    }
+    final double m = (aY - bY) / (aX - bX);
+    final double bee = (-aX) * m + aY;
+    final double x = (pY - bee) / m;
+    return x > pX;
   }
 
   Future<void> _submitForm() async {
@@ -423,6 +568,9 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
       final String? address = _addressController.text.trim().isEmpty
           ? null
           : _addressController.text.trim();
+      final String? regionCode = _regionCodeController.text.trim().isEmpty
+          ? null
+          : _regionCodeController.text.trim();
 
       final respondentData = {
         'name': name,
@@ -440,6 +588,7 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
         // 🆕 NEW: Add fraud check info
         'fraud_bypassed': _bypassFraudWarning,
         'gps_accuracy': _currentPosition?.accuracy,
+        'region_code': regionCode,
       };
 
       await ApiService.instance.createRespondent(respondentData);
@@ -519,6 +668,9 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
                       urlTemplate: _getTileUrl(),
                       userAgentPackageName: 'com.fieldtracker.app',
                       maxZoom: 20,
+                    ),
+                    PolygonLayer(
+                      polygons: _visualPolygons,
                     ),
                     MarkerLayer(
                       markers: [
@@ -811,6 +963,57 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
                           }
                           return null;
                         },
+                      ),
+                      const SizedBox(height: 16),
+
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: _regionCodeController,
+                              readOnly: !_isRegionCodeEditable, // Logika ReadOnly
+                              style: TextStyle(
+                                // Hitam jika diedit, abu-abu jika otomatis
+                                color: !_isRegionCodeEditable ? Colors.grey[700] : Colors.black,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              decoration: InputDecoration(
+                                labelText: 'Kode Wilayah (Auto)',
+                                hintText: 'Pilih lokasi di peta...',
+                                prefixIcon: const Icon(Icons.map_outlined),
+                                filled: !_isRegionCodeEditable,
+                                fillColor: Colors.grey[100],
+                                border: const OutlineInputBorder(),
+                                helperText: 'Otomatis terisi berdasarkan Pin Peta',
+                              ),
+                              // Validasi: Wajib ada isinya
+                              validator: (value) =>
+                              value?.isEmpty ?? true ? 'Lokasi belum terpilih di peta' : null,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          // Tombol Gembok (Toggle Edit)
+                          Container(
+                            height: 56,
+                            decoration: BoxDecoration(
+                              border: Border.all(color: Colors.grey),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: IconButton(
+                              icon: Icon(
+                                _isRegionCodeEditable ? Icons.lock_open : Icons.lock,
+                                color: _isRegionCodeEditable ? Colors.red : Colors.green,
+                              ),
+                              tooltip: _isRegionCodeEditable ? 'Kunci Field' : 'Edit Manual',
+                              onPressed: () {
+                                setState(() {
+                                  _isRegionCodeEditable = !_isRegionCodeEditable;
+                                });
+                              },
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 16),
 

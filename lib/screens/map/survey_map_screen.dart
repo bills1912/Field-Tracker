@@ -16,6 +16,7 @@ import '../../services/api_service.dart';
 import '../../models/survey.dart';
 import '../../models/respondent.dart';
 import '../respondent/add_respondent_screen.dart';
+import 'dart:convert';
 
 enum BaseMapType {
   openStreetMap,
@@ -48,6 +49,10 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
   BaseMapType _currentBaseMap = BaseMapType.openStreetMap;
   RespondentStatus? _currentFilter;
   bool _isFabOpen = false;
+  final Map<String, String> _regionPcodes = {};
+  // String? _selectedRegionPcode;
+  List<Respondent> _masterRespondentsList = []; // Menyimpan semua data dari API
+  String? _cachedGeoJsonString; // Menyimpan text file GeoJSON
 
   // Navigation state
   bool _isNavigating = false;
@@ -72,6 +77,7 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
   static const String _openStreetMapUrl =
       'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
   static const double _mainFabSize = 56.0;
+
 
   @override
   void initState() {
@@ -100,8 +106,10 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
     try {
       debugPrint('📍 Loading GeoJSON from: ${widget.survey.geojsonPath}');
 
+      _cachedGeoJsonString ??= await rootBundle.loadString(widget.survey.geojsonPath!);
+
       // Load GeoJSON from assets
-      final String geoJsonString = await rootBundle.loadString(widget.survey.geojsonPath!);
+      final String geoJsonString = _cachedGeoJsonString!;
 
       // Parse GeoJSON
       _geoJsonParser = GeoJsonParser(
@@ -140,35 +148,36 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
   /// Extract region names from GeoJSON features
   void _extractRegionsFromGeoJson(String geoJsonString) {
     try {
-      final Map<String, dynamic> geoJson =
-      Map<String, dynamic>.from(
-          const {} is Map<String, dynamic>
-              ? {}
-              : {}
-      );
+      _availableRegions.clear();
+      _regionPcodes.clear();
 
-      // Parse manually to get feature properties
-      final decoded = geoJsonString;
-      final RegExp featureRegex = RegExp(
-        r'"properties"\s*:\s*{[^}]*"' +
-            (widget.survey.geojsonFilterField ?? 'ADM3_EN') +
-            r'"\s*:\s*"([^"]+)"',
-      );
+      final data = jsonDecode(geoJsonString);
+      if (data['features'] != null) {
+        final features = data['features'] as List;
+        final Set<String> regions = {};
 
-      final matches = featureRegex.allMatches(decoded);
-      final Set<String> regions = {};
+        // Field nama (default ADM3_EN) dan field code (default ADM3_PCODE)
+        final nameField = widget.survey.geojsonFilterField ?? 'ADM3_EN';
+        const codeField = 'ADM3_PCODE';
 
-      for (var match in matches) {
-        if (match.groupCount >= 1) {
-          final regionName = match.group(1);
-          if (regionName != null && regionName.isNotEmpty) {
-            regions.add(regionName);
+        for (var feature in features) {
+          final props = feature['properties'];
+          if (props != null) {
+            final name = props[nameField];
+            final code = props[codeField];
+
+            if (name != null && name.toString().isNotEmpty) {
+              regions.add(name);
+              // Simpan mapping Nama -> PCODE
+              if (code != null) {
+                _regionPcodes[name] = code.toString();
+              }
+            }
           }
         }
+        _availableRegions = regions.toList()..sort();
+        debugPrint('📊 Extracted ${_availableRegions.length} regions with codes');
       }
-
-      _availableRegions = regions.toList()..sort();
-      debugPrint('📊 Extracted ${_availableRegions.length} regions');
     } catch (e) {
       debugPrint('⚠️ Error extracting regions: $e');
     }
@@ -176,48 +185,68 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
 
   /// Filter GeoJSON to show only selected region
   Future<void> _filterGeoJsonByRegion(String? regionName) async {
-    if (widget.survey.geojsonPath == null || regionName == null) {
-      // Show all regions
-      _selectedRegion = null;
-      await _loadGeoJson();
-      return;
-    }
-
-    setState(() {
-      _isLoadingGeoJson = true;
-      _selectedRegion = regionName;
-    });
+    setState(() => _isLoadingGeoJson = true);
 
     try {
       final String geoJsonString = await rootBundle.loadString(widget.survey.geojsonPath!);
 
-      // Parse and filter
+      // 1. Ambil Target Code dari Map yang sudah diekstrak sebelumnya
+      String? targetCode;
+      if (regionName != null) {
+        targetCode = _regionPcodes[regionName]; // Mengambil kode (misal: "3507010")
+        _selectedRegion = regionName;
+      } else {
+        _selectedRegion = null;
+      }
+
+      // 2. Ambil data mentah (Semua Responden)
+      final allData = await ApiService.instance.getRespondents(
+        surveyId: widget.survey.id,
+      );
+
       _geoJsonParser = GeoJsonParser(
         defaultPolygonFillColor: Colors.blue.withOpacity(0.2),
         defaultPolygonBorderColor: Colors.blue,
         defaultPolygonBorderStroke: 2.5,
       );
 
-      // Filter GeoJSON to only include selected region
-      final filteredGeoJson = _filterGeoJsonString(
-        geoJsonString,
-        widget.survey.geojsonFilterField ?? 'ADM3_EN',
-        regionName,
-      );
+      if (regionName != null && targetCode != null) {
+        // A. Filter Visual (Polygon Peta)
+        final filteredGeoJson = _filterGeoJsonString(
+          geoJsonString,
+          widget.survey.geojsonFilterField ?? 'ADM3_EN',
+          regionName,
+        );
+        _geoJsonParser!.parseGeoJsonAsString(filteredGeoJson);
+        _zoomToRegion(regionName);
 
-      _geoJsonParser!.parseGeoJsonAsString(filteredGeoJson);
+        // B. Filter Data Responden (LOGIKA UTAMA)
+        // Cocokkan 'regionCode' di model dengan 'targetCode' dari GeoJSON
+        _allRespondents = allData.where((r) {
+          // Debugging (Opsional: Cek di console jika data tidak muncul)
+          // debugPrint('Cek: ${r.name} | RegionCode: ${r.regionCode} vs Target: $targetCode');
 
-      // Zoom to the selected region
-      _zoomToRegion(regionName);
+          if (r.region_code == null) return false;
+          return r.region_code == targetCode; // Pencocokan terjadi di sini
+        }).toList();
+
+      } else {
+        // Tampilkan Semua (Jika tidak pilih region)
+        _geoJsonParser!.parseGeoJsonAsString(geoJsonString);
+        _allRespondents = allData;
+        _centerMapOnContent();
+      }
+
+      // 3. Terapkan Filter Status (Pending/Completed) ke hasil filter wilayah
+      _applyFilter();
 
       setState(() => _isLoadingGeoJson = false);
 
-      if (mounted) {
+      if (regionName != null && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Showing: $regionName'),
-            backgroundColor: const Color(0xFF2196F3),
-            duration: const Duration(seconds: 2),
+            content: Text('Region: $regionName (Found ${_allRespondents.length} respondents)'),
+            duration: const Duration(seconds: 1),
           ),
         );
       }
@@ -447,6 +476,7 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
       );
 
       setState(() {
+        _masterRespondentsList = respondents;
         _allRespondents = respondents;
         _applyFilter();
       });
@@ -462,13 +492,21 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
   }
 
   void _applyFilter() {
-    if (_currentFilter == null) {
-      _filteredRespondents = List.from(_allRespondents);
-    } else {
-      _filteredRespondents = _allRespondents
-          .where((r) => r.status == _currentFilter)
-          .toList();
-    }
+    setState(() {
+      if (_allRespondents.isEmpty) {
+        _filteredRespondents = [];
+      } else if (_currentFilter == null) {
+        // Jika Status Filter = Semua
+        _filteredRespondents = List.from(_allRespondents);
+      } else {
+        // Jika Status Filter = Pending/In Progress/Completed
+        _filteredRespondents = _allRespondents
+            .where((r) => r.status == _currentFilter)
+            .toList();
+      }
+    });
+
+    debugPrint('🔍 Filter Update: Total ${_allRespondents.length} -> Show ${_filteredRespondents.length}');
   }
 
   void _setFilter(RespondentStatus? filter) {
@@ -1226,7 +1264,9 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
                   final result = await Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => const AddRespondentScreen(),
+                      builder: (context) => AddRespondentScreen(
+                        geojsonPath: widget.survey.geojsonPath,
+                      ),
                     ),
                   );
                   if (result == true) {

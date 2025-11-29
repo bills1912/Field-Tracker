@@ -11,6 +11,7 @@ class Respondent {
   final Map<String, dynamic>? surveyData;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final String? region_code;
 
   Respondent({
     required this.id,
@@ -25,6 +26,8 @@ class Respondent {
     this.surveyData,
     required this.createdAt,
     required this.updatedAt,
+    this.region_code,
+
   });
 
   factory Respondent.fromJson(Map<String, dynamic> json) {
@@ -44,6 +47,7 @@ class Respondent {
       surveyData: json['survey_data'],
       createdAt: DateTime.parse(json['created_at']),
       updatedAt: DateTime.parse(json['updated_at']),
+      region_code: json['regionCode']?.toString() ?? json['region_code']?.toString(),
     );
   }
 
