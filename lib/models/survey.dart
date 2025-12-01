@@ -1,3 +1,23 @@
+class SurveyAllocation {
+  final String region;
+  final String supervisorId;
+  final String enumeratorId;
+
+  SurveyAllocation({
+    required this.region,
+    required this.supervisorId,
+    required this.enumeratorId,
+  });
+
+  factory SurveyAllocation.fromJson(Map<String, dynamic> json) {
+    return SurveyAllocation(
+      region: json['region'] ?? '',
+      supervisorId: json['supervisorId'] ?? '',
+      enumeratorId: json['enumeratorId'] ?? '',
+    );
+  }
+}
+
 class Survey {
   final String id;
   final String title;
@@ -13,6 +33,8 @@ class Survey {
   final bool isActive;
   final String? geojsonPath; // Path to GeoJSON file in assets
   final String? geojsonFilterField; // Field name to filter regions (e.g., "ADM3_EN")
+  final String? geojsonUniqueCodeField;
+  final List<SurveyAllocation> allocations;
 
   Survey({
     required this.id,
@@ -29,6 +51,8 @@ class Survey {
     this.isActive = true,
     this.geojsonPath,
     this.geojsonFilterField,
+    this.geojsonUniqueCodeField,
+    this.allocations = const [],
   });
 
   factory Survey.fromJson(Map<String, dynamic> json) {
@@ -47,6 +71,10 @@ class Survey {
       isActive: json['is_active'] ?? true,
       geojsonPath: json['geojson_path'],
       geojsonFilterField: json['geojson_filter_field'],
+      geojsonUniqueCodeField: json['geojson_unique_code_field'],
+      allocations: (json['allocations'] as List?)
+          ?.map((e) => SurveyAllocation.fromJson(e))
+          .toList() ?? [],
     );
   }
 
@@ -66,6 +94,7 @@ class Survey {
       'is_active': isActive,
       'geojson_path': geojsonPath,
       'geojson_filter_field': geojsonFilterField,
+      'geojson_unique_code_field': geojsonUniqueCodeField,
     };
   }
 }

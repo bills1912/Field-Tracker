@@ -17,6 +17,7 @@ import '../../models/survey.dart';
 import '../../models/respondent.dart';
 import '../respondent/add_respondent_screen.dart';
 import 'dart:convert';
+import 'package:http/http.dart' as http;
 
 enum BaseMapType {
   openStreetMap,
@@ -53,6 +54,7 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
   // String? _selectedRegionPcode;
   List<Respondent> _masterRespondentsList = []; // Menyimpan semua data dari API
   String? _cachedGeoJsonString; // Menyimpan text file GeoJSON
+  List<String> _myAllocatedRegions = [];
 
   // Navigation state
   bool _isNavigating = false;
@@ -106,10 +108,36 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
     try {
       debugPrint('📍 Loading GeoJSON from: ${widget.survey.geojsonPath}');
 
-      _cachedGeoJsonString ??= await rootBundle.loadString(widget.survey.geojsonPath!);
+      String geoJsonString;
 
-      // Load GeoJSON from assets
-      final String geoJsonString = _cachedGeoJsonString!;
+      // CEK: Apakah path adalah URL Online?
+      if (widget.survey.geojsonPath!.startsWith('http')) {
+        // --- LOGIC BARU: Fetch dari API ---
+
+        // Ambil token dari AuthProvider untuk otentikasi
+        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+        final token = authProvider.token; // Pastikan AuthProvider punya getter 'token'
+
+        final response = await http.get(
+          Uri.parse(widget.survey.geojsonPath!),
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Accept': 'application/json',
+          },
+        );
+
+        if (response.statusCode == 200) {
+          geoJsonString = response.body;
+          // Cache string agar tidak request ulang jika rebuild
+          _cachedGeoJsonString = geoJsonString;
+        } else {
+          throw Exception('Failed to download map: ${response.statusCode}');
+        }
+      } else {
+        // --- LOGIC LAMA: Load dari Asset Lokal (Mock) ---
+        _cachedGeoJsonString ??= await rootBundle.loadString(widget.survey.geojsonPath!);
+        geoJsonString = _cachedGeoJsonString!;
+      }
 
       // Parse GeoJSON
       _geoJsonParser = GeoJsonParser(
@@ -119,6 +147,51 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
       );
 
       _geoJsonParser!.parseGeoJsonAsString(geoJsonString);
+
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final user = authProvider.user;
+
+      // Cek apakah ada data alokasi di survey ini
+      if (widget.survey.allocations.isNotEmpty && user != null) {
+
+        // Jika Admin, tampilkan semua. Jika bukan, filter.
+        if (user.role != 'admin') { // Sesuaikan string role admin Anda
+
+          // Ambil daftar nama region yang ditugaskan ke user ini
+          _myAllocatedRegions = widget.survey.allocations
+              .where((a) => a.enumeratorId == user.id || a.supervisorId == user.id)
+              .map((a) => a.region)
+              .toList();
+
+          debugPrint('🎯 User Allocated Regions: $_myAllocatedRegions');
+
+          // Jika user punya alokasi, HAPUS polygon yang tidak sesuai
+          if (_myAllocatedRegions.isNotEmpty) {
+            // Filter polygons di _geoJsonParser
+            // Note: flutter_map_geojson mungkin tidak menyimpan nama di objek Polygon-nya secara langsung
+            // Jadi kita harus filter ulang stringnya ATAU filter polygons-nya jika kita bisa map index-nya.
+            // Cara paling aman & bersih: Filter String GeoJSON-nya SEBELUM diparsing ke Parser Visual.
+
+            final filteredString = _filterGeoJsonStringByList(
+                geoJsonString,
+                widget.survey.geojsonFilterField ?? 'ADM3_EN',
+                _myAllocatedRegions
+            );
+
+            // Reset parser dengan string yang sudah disaring
+            _geoJsonParser = GeoJsonParser(
+              defaultPolygonFillColor: Colors.blue.withOpacity(0.1),
+              defaultPolygonBorderColor: Colors.blue,
+              defaultPolygonBorderStroke: 2.0,
+            );
+            _geoJsonParser!.parseGeoJsonAsString(filteredString);
+
+            // Update cache string agar _filterGeoJsonByRegion (dropdown select) pakai data yang sudah disaring
+            _cachedGeoJsonString = filteredString;
+            geoJsonString = filteredString; // Update variabel lokal untuk ekstraksi di bawah
+          }
+        }
+      }
 
       // Extract available regions from GeoJSON
       if (widget.survey.geojsonFilterField != null) {
@@ -145,6 +218,29 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
     }
   }
 
+  String _filterGeoJsonStringByList(String geoJsonString, String fieldName, List<String> allowedRegions) {
+    try {
+      final data = jsonDecode(geoJsonString);
+      if (data['features'] == null) return geoJsonString;
+
+      final List features = data['features'];
+      final List filteredFeatures = features.where((feature) {
+        final props = feature['properties'];
+        if (props == null) return false;
+
+        final regionName = props[fieldName];
+        // Keep if regionName exists in allowed list
+        return allowedRegions.contains(regionName);
+      }).toList();
+
+      data['features'] = filteredFeatures;
+      return jsonEncode(data);
+    } catch (e) {
+      debugPrint('⚠️ Error filtering GeoJSON by list: $e');
+      return geoJsonString;
+    }
+  }
+
   /// Extract region names from GeoJSON features
   void _extractRegionsFromGeoJson(String geoJsonString) {
     try {
@@ -158,7 +254,7 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
 
         // Field nama (default ADM3_EN) dan field code (default ADM3_PCODE)
         final nameField = widget.survey.geojsonFilterField ?? 'ADM3_EN';
-        const codeField = 'ADM3_PCODE';
+        final codeField = widget.survey.geojsonUniqueCodeField ?? 'ADM3_PCODE';
 
         for (var feature in features) {
           final props = feature['properties'];
@@ -188,7 +284,19 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
     setState(() => _isLoadingGeoJson = true);
 
     try {
-      final String geoJsonString = await rootBundle.loadString(widget.survey.geojsonPath!);
+
+      if (_cachedGeoJsonString == null) {
+        // Jika belum ada (misal karena refresh), download ulang
+        await _loadGeoJson();
+
+        // Jika masih gagal download, hentikan proses
+        if (_cachedGeoJsonString == null) {
+          setState(() => _isLoadingGeoJson = false);
+          return;
+        }
+      }
+
+      final String geoJsonString = _cachedGeoJsonString!;
 
       // 1. Ambil Target Code dari Map yang sudah diekstrak sebelumnya
       String? targetCode;
@@ -1266,6 +1374,7 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
                     MaterialPageRoute(
                       builder: (context) => AddRespondentScreen(
                         geojsonPath: widget.survey.geojsonPath,
+                        allowedRegions: _myAllocatedRegions.isNotEmpty ? _myAllocatedRegions : null,
                       ),
                     ),
                   );

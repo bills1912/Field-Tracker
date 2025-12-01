@@ -14,6 +14,7 @@ import '../../models/location_fraud_result.dart'; // 🆕 NEW
 import 'dart:convert';
 import 'package:flutter/services.dart'; // Untuk rootBundle
 import 'package:latlong2/latlong.dart'; // Pastikan ini ada
+import 'package:http/http.dart' as http;
 
 enum BaseMapType {
   openStreetMap,
@@ -23,7 +24,13 @@ enum BaseMapType {
 
 class AddRespondentScreen extends StatefulWidget {
   final String? geojsonPath;
-  const AddRespondentScreen({super.key, this.geojsonPath,});
+  final List<String>? allowedRegions;
+
+  const AddRespondentScreen({
+    super.key,
+    this.geojsonPath,
+    this.allowedRegions,
+  });
 
   @override
   State<AddRespondentScreen> createState() => _AddRespondentScreenState();
@@ -391,7 +398,35 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
     if (widget.geojsonPath == null) return;
 
     try {
-      final String data = await rootBundle.loadString(widget.geojsonPath!);
+      String data;
+
+      // --- LOGIC BARU: Cek URL vs Asset ---
+      if (widget.geojsonPath!.startsWith('http')) {
+        // Ambil token dari AuthProvider
+        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+        final token = authProvider.token; // Sesuaikan jika nama variabel beda
+
+        debugPrint('📍 Fetching GeoJSON from URL: ${widget.geojsonPath}');
+
+        final response = await http.get(
+          Uri.parse(widget.geojsonPath!),
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Accept': 'application/json',
+          },
+        );
+
+        if (response.statusCode == 200) {
+          data = response.body;
+        } else {
+          debugPrint('❌ Failed to fetch GeoJSON: ${response.statusCode}');
+          return;
+        }
+      } else {
+        // Fallback: Load dari Asset Lokal (Untuk testing/mock)
+        data = await rootBundle.loadString(widget.geojsonPath!);
+      }
+
       final json = jsonDecode(data);
 
       if (json['features'] != null) {
@@ -409,6 +444,12 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
           final String pcode = props['ADM3_PCODE']?.toString()
               ?? props['region_code']?.toString()
               ?? '';
+
+          if (widget.allowedRegions != null && widget.allowedRegions!.isNotEmpty) {
+            if (!widget.allowedRegions!.contains(pcode)) {
+              continue; // Skip polygon ini, jangan masukkan ke logicPolys atau visualPolys
+            }
+          }
 
           if (pcode.isEmpty) continue;
 
