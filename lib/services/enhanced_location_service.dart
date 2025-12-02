@@ -11,7 +11,7 @@ import 'storage_service.dart';
 import 'api_service.dart';
 import 'dart:math';
 
-/// Enhanced location service dengan integrasi fraud detection
+/// Enhanced location service dengan integrasi fraud detection dan offline support
 class EnhancedLocationService {
   static EnhancedLocationService? _instance;
   static EnhancedLocationService get instance =>
@@ -33,10 +33,19 @@ class EnhancedLocationService {
   Function(LocationFraudResult)? onFraudDetected;
   Function(EnhancedLocationTracking)? onLocationTracked;
 
-  // Cache lokasi terakhir
+  // Cache lokasi terakhir (untuk offline mode)
   EnhancedLocationTracking? _lastLocation;
+  LocationData? _lastRawLocation;
 
-  /// Start enhanced tracking dengan fraud detection
+  // Stream controller untuk real-time updates
+  final StreamController<EnhancedLocationTracking> _locationStreamController =
+  StreamController<EnhancedLocationTracking>.broadcast();
+
+  /// Stream untuk real-time location updates
+  Stream<EnhancedLocationTracking> get locationStream => _locationStreamController.stream;
+
+  /// Start enhanced tracking dengan fraud detection dan real-time updates
+  /// UPDATED: Interval dari 5 menit ke 2 menit
   Future<void> startTracking(
       String userId, {
         Function(LocationFraudResult)? onFraud,
@@ -72,11 +81,12 @@ class EnhancedLocationService {
         }
       }
 
-      // Configure location settings
+      // Configure location settings for real-time tracking
+      // UPDATED: Interval lebih cepat untuk real-time
       await _location.changeSettings(
         accuracy: LocationAccuracy.high,
-        interval: 300000, // 5 minutes
-        distanceFilter: 10, // 10 meters
+        interval: 5000, // 5 detik untuk real-time UI updates
+        distanceFilter: 5, // 5 meters - lebih sensitif
       );
 
       // Enable background mode
@@ -89,12 +99,15 @@ class EnhancedLocationService {
       // Start sensor collection
       await _sensorService.startCollecting();
 
+      // Start real-time location listener
+      await _startRealTimeListener(userId);
+
       // Track initial location
       await _trackLocationWithFraudCheck(userId);
 
-      // Start periodic tracking
+      // Start periodic tracking - UPDATED: 2 menit (sebelumnya 5 menit)
       _locationTimer = Timer.periodic(
-        const Duration(minutes: 5),
+        const Duration(minutes: 2), // CHANGED: dari 5 menit ke 2 menit
             (timer) async {
           try {
             await _trackLocationWithFraudCheck(userId);
@@ -124,6 +137,59 @@ class EnhancedLocationService {
       _cleanup();
       rethrow;
     }
+  }
+
+  /// Start real-time location listener
+  Future<void> _startRealTimeListener(String userId) async {
+    await _locationSubscription?.cancel();
+
+    _locationSubscription = _location.onLocationChanged.listen(
+          (LocationData locationData) async {
+        debugPrint('📍 Real-time update: ${locationData.latitude}, ${locationData.longitude}');
+
+        // Cache raw location
+        _lastRawLocation = locationData;
+
+        if (locationData.latitude == null || locationData.longitude == null) {
+          return;
+        }
+
+        // Get sensor data
+        final sensorData = _sensorService.getCurrentSensorData();
+
+        // Create enhanced location
+        final enhancedLocation = EnhancedLocationTracking(
+          userId: userId,
+          latitude: locationData.latitude!,
+          longitude: locationData.longitude!,
+          altitude: locationData.altitude,
+          timestamp: DateTime.now(),
+          accuracy: locationData.accuracy,
+          speed: locationData.speed,
+          bearing: locationData.heading,
+          sensorData: sensorData,
+          locationProvider: 'fused',
+        );
+
+        // Cache enhanced location
+        _lastLocation = enhancedLocation;
+
+        // Notify callback
+        onLocationTracked?.call(enhancedLocation);
+
+        // Broadcast to stream
+        if (!_locationStreamController.isClosed) {
+          _locationStreamController.add(enhancedLocation);
+        }
+
+        // Save location (works offline)
+        await _saveLocationOfflineFirst(enhancedLocation);
+      },
+      onError: (error) {
+        debugPrint('❌ Real-time listener error: $error');
+      },
+      cancelOnError: false,
+    );
   }
 
   /// Stop enhanced tracking
@@ -176,16 +242,35 @@ class EnhancedLocationService {
     try {
       debugPrint('📍 Tracking location with fraud check...');
 
-      // Get location
-      final locationData = await _location.getLocation().timeout(
-        const Duration(seconds: 30),
-        onTimeout: () => throw TimeoutException('Location timeout'),
-      );
+      // Get location with timeout, fallback to cache
+      LocationData locationData;
+      try {
+        locationData = await _location.getLocation().timeout(
+          const Duration(seconds: 15),
+          onTimeout: () {
+            if (_lastRawLocation != null) {
+              debugPrint('⚠️ Timeout - using cached location');
+              return _lastRawLocation!;
+            }
+            throw TimeoutException('Location timeout');
+          },
+        );
+      } catch (e) {
+        if (_lastRawLocation != null) {
+          locationData = _lastRawLocation!;
+        } else {
+          debugPrint('❌ Cannot get location: $e');
+          return null;
+        }
+      }
 
       if (locationData.latitude == null || locationData.longitude == null) {
         debugPrint('⚠️ Invalid location data');
-        return null;
+        return _lastLocation; // Return cached
       }
+
+      // Cache raw location
+      _lastRawLocation = locationData;
 
       // Get sensor data
       final sensorData = _sensorService.getCurrentSensorData();
@@ -231,48 +316,27 @@ class EnhancedLocationService {
       // Save to cache
       _lastLocation = finalLocation;
 
-      // Send to API
-      try {
-        await _sendLocationToApi(finalLocation, fraudResult);
-      } catch (e) {
-        debugPrint('⚠️ API error, saving locally: $e');
-        await _saveLocationLocally(finalLocation);
+      // Broadcast to stream
+      if (!_locationStreamController.isClosed) {
+        _locationStreamController.add(finalLocation);
       }
+
+      // Save location (offline first)
+      await _saveLocationOfflineFirst(finalLocation, fraudResult: fraudResult);
 
       return finalLocation;
     } catch (e) {
       debugPrint('❌ Error tracking location: $e');
-      return null;
+      return _lastLocation; // Return cached on error
     }
   }
 
-  /// Send location to API with fraud result
-  Future<void> _sendLocationToApi(
-      EnhancedLocationTracking location,
-      LocationFraudResult fraudResult,
-      ) async {
-    // Convert to basic location tracking for API
-    final basicLocation = LocationTracking(
-      userId: location.userId,
-      latitude: location.latitude,
-      longitude: location.longitude,
-      timestamp: location.timestamp,
-      accuracy: location.accuracy,
-      batteryLevel: location.batteryLevel,
-      isSynced: true,
-    );
-
-    await ApiService.instance.createLocation(basicLocation);
-
-    // Also send fraud result if flagged
-    if (fraudResult.isFraudulent) {
-      // TODO: Implement API endpoint for fraud reports
-      debugPrint('📤 Fraud result would be sent to API');
-    }
-  }
-
-  /// Save location locally for later sync
-  Future<void> _saveLocationLocally(EnhancedLocationTracking location) async {
+  /// Save location - OFFLINE FIRST approach
+  Future<void> _saveLocationOfflineFirst(
+      EnhancedLocationTracking location, {
+        LocationFraudResult? fraudResult,
+      }) async {
+    // Always save to local storage first (offline support)
     final basicLocation = LocationTracking(
       userId: location.userId,
       latitude: location.latitude,
@@ -283,19 +347,45 @@ class EnhancedLocationService {
       isSynced: false,
     );
 
+    // Save locally first
     await StorageService.instance.savePendingLocation(basicLocation);
+    debugPrint('💾 Location saved locally');
+
+    // Then try to send to API
+    try {
+      await ApiService.instance.createLocation(basicLocation);
+      debugPrint('✅ Location synced to server');
+      // Mark as synced by removing from pending (optional optimization)
+    } catch (e) {
+      debugPrint('⚠️ Will sync later when online: $e');
+      // Location already saved locally, will sync later
+    }
   }
 
   /// Get current location with fraud check (one-time)
   Future<(EnhancedLocationTracking?, LocationFraudResult?)>
   getCurrentLocationWithFraudCheck(String userId) async {
     try {
-      // Get location
-      final locationData = await _location.getLocation();
+      // Try to get location, fallback to cache
+      LocationData? locationData;
+      try {
+        locationData = await _location.getLocation().timeout(
+          const Duration(seconds: 15),
+        );
+      } catch (e) {
+        locationData = _lastRawLocation;
+      }
 
-      if (locationData.latitude == null || locationData.longitude == null) {
+      if (locationData?.latitude == null || locationData?.longitude == null) {
+        // Return cached if available
+        if (_lastLocation != null) {
+          return (_lastLocation, null);
+        }
         return (null, null);
       }
+
+      // Cache raw location
+      _lastRawLocation = locationData;
 
       // Get sensor and security data
       final sensorData = _sensorService.getCurrentSensorData();
@@ -304,7 +394,7 @@ class EnhancedLocationService {
       // Create enhanced location
       final enhancedLocation = EnhancedLocationTracking(
         userId: userId,
-        latitude: locationData.latitude!,
+        latitude: locationData!.latitude!,
         longitude: locationData.longitude!,
         altitude: locationData.altitude,
         timestamp: DateTime.now(),
@@ -325,10 +415,14 @@ class EnhancedLocationService {
         isFlagged: fraudResult.isFraudulent,
       );
 
+      // Cache
+      _lastLocation = finalLocation;
+
       return (finalLocation, fraudResult);
     } catch (e) {
       debugPrint('❌ Error getting location with fraud check: $e');
-      return (null, null);
+      // Return cached
+      return (_lastLocation, null);
     }
   }
 
@@ -376,4 +470,11 @@ class EnhancedLocationService {
   bool get isTracking => _isTracking;
   String? get currentUserId => _currentUserId;
   EnhancedLocationTracking? get lastLocation => _lastLocation;
+  LocationData? get lastRawLocation => _lastRawLocation;
+
+  /// Dispose resources
+  void dispose() {
+    _cleanup();
+    _locationStreamController.close();
+  }
 }

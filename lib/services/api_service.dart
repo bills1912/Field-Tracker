@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
 import '../models/user.dart';
 import '../models/survey.dart';
 import '../models/respondent.dart';
@@ -12,6 +13,7 @@ import '../models/faq.dart';
 import '../models/survey_stats.dart';
 import 'storage_service.dart';
 
+/// API Service dengan dukungan offline-first
 class ApiService {
   static const String baseUrl = 'https://survey-enum-tracker-1.onrender.com/api';
 
@@ -19,6 +21,10 @@ class ApiService {
   static ApiService get instance => _instance ??= ApiService._();
 
   ApiService._();
+
+  // Timeout settings
+  static const Duration _defaultTimeout = Duration(seconds: 30);
+  static const Duration _shortTimeout = Duration(seconds: 10);
 
   Future<Map<String, String>> _getHeaders() async {
     final token = await StorageService.instance.getToken();
@@ -29,31 +35,31 @@ class ApiService {
     };
   }
 
+  /// Check if we have network connectivity
+  Future<bool> hasConnectivity() async {
+    try {
+      final result = await InternetAddress.lookup('google.com')
+          .timeout(const Duration(seconds: 5));
+      return result.isNotEmpty && result[0].rawAddress.isNotEmpty;
+    } catch (e) {
+      return false;
+    }
+  }
+
   // ==================== AUTHENTICATION APIs ====================
 
-  /// Login method with extensive debugging
   Future<Map<String, dynamic>> login(String email, String password) async {
-    print('\n' + '='*70);
-    print('🌐 API SERVICE - LOGIN REQUEST');
-    print('='*70);
-    print('📍 URL: $baseUrl/auth/login');
-    print('📧 Email: $email');
-    print('🔑 Password: ${password.replaceAll(RegExp(r'.'), '*')} (${password.length} chars)');
+    debugPrint('\n' + '='*70);
+    debugPrint('🌐 API SERVICE - LOGIN REQUEST');
+    debugPrint('='*70);
+    debugPrint('📍 URL: $baseUrl/auth/login');
+    debugPrint('📧 Email: $email');
 
     try {
-      print('\n📤 Preparing request...');
-
-      // Prepare request body
       final requestBody = {
         'email': email,
         'password': password,
       };
-
-      print('📦 Request body:');
-      print(json.encode(requestBody));
-
-      print('\n🔗 Making HTTP POST request...');
-      final startTime = DateTime.now();
 
       final response = await http.post(
         Uri.parse('$baseUrl/auth/login'),
@@ -62,131 +68,34 @@ class ApiService {
           'Accept': 'application/json',
         },
         body: json.encode(requestBody),
-      ).timeout(
-        const Duration(seconds: 30),
-        onTimeout: () {
-          throw TimeoutException('Request timeout after 30 seconds');
-        },
-      );
+      ).timeout(_defaultTimeout);
 
-      final endTime = DateTime.now();
-      final duration = endTime.difference(startTime);
-
-      print('\n📥 Response received in ${duration.inMilliseconds}ms');
-      print('📊 Status Code: ${response.statusCode}');
-      print('📋 Headers: ${response.headers}');
-      print('📄 Body length: ${response.body.length} bytes');
-      print('\n📄 Response Body:');
-      print(response.body);
-      print('');
+      debugPrint('📥 Status Code: ${response.statusCode}');
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        print('✅ Success! Parsing response...');
+        final Map<String, dynamic> data = json.decode(response.body);
 
-        try {
-          final Map<String, dynamic> data = json.decode(response.body);
-          print('✓ JSON parsed successfully');
-          print('✓ Keys found: ${data.keys.join(", ")}');
-
-          // Check for various success indicators
-          if (data.containsKey('success')) {
-            print('✓ Has "success" field: ${data['success']}');
-          }
-          if (data.containsKey('token')) {
-            print('✓ Has "token" field: YES (${data['token'].toString().length} chars)');
-          }
-          if (data.containsKey('access_token')) {
-            print('✓ Has "access_token" field: YES');
-          }
-          if (data.containsKey('user')) {
-            print('✓ Has "user" field: YES');
-          }
-          if (data.containsKey('data')) {
-            print('✓ Has "data" field: YES');
-          }
-
-          print('='*70);
-          print('✅ API LOGIN SUCCESS');
-          print('='*70 + '\n');
-
-          return data;
-
-        } catch (e) {
-          print('❌ JSON parsing error: $e');
-          print('Raw response: ${response.body}');
-          throw FormatException('Invalid JSON response from server: $e');
+        // Save user data for offline access
+        if (data['user'] != null) {
+          final user = User.fromJson(data['user']);
+          await StorageService.instance.saveUser(user);
         }
 
+        return data;
       } else if (response.statusCode == 401) {
-        print('❌ Authentication failed (401)');
         final errorBody = json.decode(response.body);
-        print('Error response: $errorBody');
-        print('='*70 + '\n');
-
         return {
           'success': false,
           'message': errorBody['message'] ?? 'Email atau password salah',
-          'error': 'Unauthorized',
         };
-
-      } else if (response.statusCode == 404) {
-        print('❌ Endpoint not found (404)');
-        print('='*70 + '\n');
-        throw Exception('Login endpoint tidak ditemukan. URL: $baseUrl/auth/login');
-
-      } else if (response.statusCode >= 500) {
-        print('❌ Server error (${response.statusCode})');
-        print('='*70 + '\n');
-        throw Exception('Server error (${response.statusCode}). Coba lagi nanti.');
-
       } else {
-        print('❌ Unexpected status code: ${response.statusCode}');
-        print('Response: ${response.body}');
-        print('='*70 + '\n');
-
-        try {
-          final errorBody = json.decode(response.body);
-          throw Exception(errorBody['message'] ?? 'Login failed: ${response.statusCode}');
-        } catch (e) {
-          throw Exception('Login failed with status ${response.statusCode}');
-        }
+        throw Exception('Login failed: ${response.statusCode}');
       }
-
-    } on SocketException catch (e) {
-      print('\n💥 SOCKET EXCEPTION');
-      print('='*70);
-      print('Error: $e');
-      print('Kemungkinan:');
-      print('1. Tidak ada koneksi internet');
-      print('2. Server tidak bisa dijangkau');
-      print('3. URL salah: $baseUrl');
-      print('='*70 + '\n');
+    } on SocketException {
       throw Exception('Tidak ada koneksi internet. Periksa koneksi Anda.');
-
-    } on TimeoutException catch (e) {
-      print('\n⏱️ TIMEOUT EXCEPTION');
-      print('='*70);
-      print('Error: $e');
-      print('Request melebihi 30 detik');
-      print('='*70 + '\n');
+    } on TimeoutException {
       throw Exception('Request timeout. Koneksi terlalu lambat.');
-
-    } on FormatException catch (e) {
-      print('\n📝 FORMAT EXCEPTION');
-      print('='*70);
-      print('Error: $e');
-      print('Response dari server bukan JSON yang valid');
-      print('='*70 + '\n');
-      rethrow;
-
-    } catch (e, stackTrace) {
-      print('\n💥 UNEXPECTED EXCEPTION');
-      print('='*70);
-      print('Error: $e');
-      print('Type: ${e.runtimeType}');
-      print('\nStackTrace:');
-      print(stackTrace);
-      print('='*70 + '\n');
+    } catch (e) {
       throw Exception('Login failed: $e');
     }
   }
@@ -197,7 +106,7 @@ class ApiService {
         Uri.parse('$baseUrl/auth/register'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode(userData),
-      ).timeout(const Duration(seconds: 30));
+      ).timeout(_defaultTimeout);
 
       if (response.statusCode == 200) {
         return json.decode(response.body);
@@ -205,10 +114,6 @@ class ApiService {
         final errorBody = json.decode(response.body);
         throw Exception(errorBody['message'] ?? 'Registration failed');
       }
-    } on SocketException {
-      throw Exception('No internet connection');
-    } on TimeoutException {
-      throw Exception('Request timeout');
     } catch (e) {
       throw Exception('Registration failed: $e');
     }
@@ -220,35 +125,59 @@ class ApiService {
       final response = await http.get(
         Uri.parse('$baseUrl/auth/me'),
         headers: headers,
-      ).timeout(const Duration(seconds: 30));
+      ).timeout(_defaultTimeout);
 
       if (response.statusCode == 200) {
-        return User.fromJson(json.decode(response.body));
+        final user = User.fromJson(json.decode(response.body));
+        await StorageService.instance.saveUser(user);
+        return user;
       } else {
         throw Exception('Failed to get user info: ${response.statusCode}');
       }
     } catch (e) {
+      // Try to get cached user
+      final cachedUser = await StorageService.instance.getUser();
+      if (cachedUser != null) {
+        debugPrint('📱 Using cached user data');
+        return cachedUser;
+      }
       throw Exception('Failed to get user info: $e');
     }
   }
 
-  // ==================== SURVEY APIs ====================
+  // ==================== SURVEY APIs (OFFLINE SUPPORTED) ====================
 
+  /// Get surveys with offline support
   Future<List<Survey>> getSurveys() async {
     try {
       final headers = await _getHeaders();
       final response = await http.get(
         Uri.parse('$baseUrl/surveys'),
         headers: headers,
-      ).timeout(const Duration(seconds: 30));
+      ).timeout(_defaultTimeout);
 
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
-        return data.map((json) => Survey.fromJson(json)).toList();
+        final surveys = data.map((json) => Survey.fromJson(json)).toList();
+
+        // Cache surveys for offline use
+        await StorageService.instance.cacheSurveys(surveys);
+        debugPrint('✅ Loaded ${surveys.length} surveys from API and cached');
+
+        return surveys;
       } else {
         throw Exception('Failed to load surveys: ${response.statusCode}');
       }
     } catch (e) {
+      debugPrint('⚠️ API error, trying cache: $e');
+
+      // OFFLINE FALLBACK: Return cached surveys
+      final cachedSurveys = await StorageService.instance.getCachedSurveys();
+      if (cachedSurveys.isNotEmpty) {
+        debugPrint('📱 Using ${cachedSurveys.length} cached surveys');
+        return cachedSurveys;
+      }
+
       throw Exception('Failed to load surveys: $e');
     }
   }
@@ -259,7 +188,7 @@ class ApiService {
       final response = await http.get(
         Uri.parse('$baseUrl/surveys/$surveyId'),
         headers: headers,
-      ).timeout(const Duration(seconds: 30));
+      ).timeout(_defaultTimeout);
 
       if (response.statusCode == 200) {
         return Survey.fromJson(json.decode(response.body));
@@ -267,25 +196,54 @@ class ApiService {
         throw Exception('Failed to load survey: ${response.statusCode}');
       }
     } catch (e) {
+      // OFFLINE FALLBACK
+      final cachedSurvey = await StorageService.instance.getCachedSurvey(surveyId);
+      if (cachedSurvey != null) {
+        debugPrint('📱 Using cached survey');
+        return cachedSurvey;
+      }
       throw Exception('Failed to load survey: $e');
     }
   }
 
+  /// Get survey stats with offline support
   Future<SurveyStats> getSurveyStats(String surveyId) async {
     try {
       final headers = await _getHeaders();
       final response = await http.get(
         Uri.parse('$baseUrl/surveys/$surveyId/stats'),
         headers: headers,
-      ).timeout(const Duration(seconds: 30));
+      ).timeout(_shortTimeout);
 
       if (response.statusCode == 200) {
-        return SurveyStats.fromJson(json.decode(response.body));
+        final stats = SurveyStats.fromJson(json.decode(response.body));
+
+        // Cache stats for offline use
+        await StorageService.instance.cacheSurveyStats(surveyId, stats);
+
+        return stats;
       } else {
         throw Exception('Failed to load survey stats: ${response.statusCode}');
       }
     } catch (e) {
-      throw Exception('Failed to load survey stats: $e');
+      debugPrint('⚠️ API error for stats, trying cache: $e');
+
+      // OFFLINE FALLBACK
+      final cachedStats = await StorageService.instance.getCachedSurveyStats(surveyId);
+      if (cachedStats != null) {
+        debugPrint('📱 Using cached stats');
+        return cachedStats;
+      }
+
+      // Return empty stats if no cache
+      return SurveyStats(
+        surveyId: surveyId,
+        totalRespondents: 0,
+        pending: 0,
+        inProgress: 0,
+        completed: 0,
+        completionRate: 0,
+      );
     }
   }
 
@@ -296,7 +254,7 @@ class ApiService {
         Uri.parse('$baseUrl/surveys'),
         headers: headers,
         body: json.encode(surveyData),
-      ).timeout(const Duration(seconds: 30));
+      ).timeout(_defaultTimeout);
 
       if (response.statusCode == 200) {
         return Survey.fromJson(json.decode(response.body));
@@ -309,8 +267,9 @@ class ApiService {
     }
   }
 
-  // ==================== RESPONDENT APIs ====================
+  // ==================== RESPONDENT APIs (OFFLINE SUPPORTED) ====================
 
+  /// Get respondents with offline support
   Future<List<Respondent>> getRespondents({String? surveyId}) async {
     try {
       final headers = await _getHeaders();
@@ -318,20 +277,40 @@ class ApiService {
           ? Uri.parse('$baseUrl/respondents').replace(queryParameters: {'survey_id': surveyId})
           : Uri.parse('$baseUrl/respondents');
 
-      final response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 30));
+      final response = await http.get(uri, headers: headers).timeout(_defaultTimeout);
 
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
-        return data.map((json) => Respondent.fromJson(json)).toList();
+        final respondents = data.map((json) => Respondent.fromJson(json)).toList();
+
+        // Cache respondents for offline use
+        if (surveyId != null) {
+          await StorageService.instance.cacheRespondents(surveyId, respondents);
+        }
+        debugPrint('✅ Loaded ${respondents.length} respondents from API');
+
+        return respondents;
       } else {
         throw Exception('Failed to load respondents: ${response.statusCode}');
       }
-    } on SocketException {
-      throw Exception('No internet connection');
-    } on TimeoutException {
-      throw Exception('Request timeout');
     } catch (e) {
-      throw Exception('Failed to load respondents: $e');
+      debugPrint('⚠️ API error for respondents, trying cache: $e');
+
+      // OFFLINE FALLBACK
+      final cachedRespondents = await StorageService.instance.getCachedRespondents(surveyId: surveyId);
+      if (cachedRespondents.isNotEmpty) {
+        debugPrint('📱 Using ${cachedRespondents.length} cached respondents');
+        return cachedRespondents;
+      }
+
+      // Also include pending (locally created) respondents
+      final pendingRespondents = await StorageService.instance.getPendingRespondents();
+      if (pendingRespondents.isNotEmpty) {
+        debugPrint('📱 Including ${pendingRespondents.length} pending respondents');
+        return pendingRespondents;
+      }
+
+      return []; // Return empty list instead of throwing
     }
   }
 
@@ -341,7 +320,7 @@ class ApiService {
       final response = await http.get(
         Uri.parse('$baseUrl/respondents/$id'),
         headers: headers,
-      ).timeout(const Duration(seconds: 30));
+      ).timeout(_defaultTimeout);
 
       if (response.statusCode == 200) {
         return Respondent.fromJson(json.decode(response.body));
@@ -353,120 +332,116 @@ class ApiService {
     }
   }
 
+  /// Create respondent with offline support
   Future<Respondent> createRespondent(Map<String, dynamic> data) async {
+    debugPrint('📤 Creating respondent...');
+
+    // Validate required fields
+    if (data['name'] == null || (data['name'] as String).trim().isEmpty) {
+      throw Exception('Name is required');
+    }
+    if (data['latitude'] == null || data['longitude'] == null) {
+      throw Exception('Location coordinates are required');
+    }
+    if (data['survey_id'] == null) {
+      throw Exception('Survey ID is required');
+    }
+
+    // Create a temporary respondent object
+    final tempId = 'temp_${DateTime.now().millisecondsSinceEpoch}';
+    final respondent = Respondent(
+      id: tempId,
+      name: data['name'],
+      phone: data['phone'],
+      address: data['address'],
+      latitude: data['latitude'],
+      longitude: data['longitude'],
+      status: RespondentStatus.pending,
+      surveyId: data['survey_id'],
+      enumeratorId: data['enumerator_id'],
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+      region_code: data['region_code'],
+    );
+
     try {
-      print('📤 Creating respondent...');
-      print('📦 Data: ${json.encode(data)}');
-
-      if (data['name'] == null || (data['name'] as String).trim().isEmpty) {
-        throw Exception('Name is required');
-      }
-      if (data['latitude'] == null || data['longitude'] == null) {
-        throw Exception('Location coordinates are required');
-      }
-      if (data['survey_id'] == null) {
-        throw Exception('Survey ID is required');
-      }
-
       final headers = await _getHeaders();
-      print('🔑 Headers: $headers');
-
       final response = await http.post(
         Uri.parse('$baseUrl/respondents'),
         headers: headers,
         body: json.encode(data),
-      ).timeout(
-        const Duration(seconds: 30),
-        onTimeout: () {
-          throw TimeoutException('Request timed out after 30 seconds');
-        },
-      );
-
-      print('📥 Response status: ${response.statusCode}');
-      print('📥 Response body: ${response.body}');
+      ).timeout(_shortTimeout);
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         final responseData = json.decode(response.body);
-        print('✅ Respondent created successfully');
+        debugPrint('✅ Respondent created on server');
         return Respondent.fromJson(responseData);
       } else {
-        String errorMessage = 'Failed to create respondent';
-        try {
-          final errorBody = json.decode(response.body);
-          errorMessage = errorBody['message'] ?? errorBody['error'] ?? errorMessage;
-        } catch (e) {
-          errorMessage = 'Server error: ${response.statusCode}';
-        }
-        print('❌ Error: $errorMessage');
-        throw Exception(errorMessage);
+        throw Exception('Server error: ${response.statusCode}');
       }
-    } on SocketException catch (e) {
-      print('❌ No internet connection: $e');
-      throw Exception('No internet connection. Data will be saved locally and synced later.');
-    } on TimeoutException catch (e) {
-      print('❌ Request timeout: $e');
-      throw Exception('Request timeout. Please check your connection and try again.');
-    } on FormatException catch (e) {
-      print('❌ Invalid response format: $e');
-      throw Exception('Invalid response from server');
     } catch (e) {
-      print('❌ Unexpected error: $e');
-      throw Exception('Failed to create respondent: $e');
+      debugPrint('⚠️ API failed, saving locally: $e');
+
+      // OFFLINE FALLBACK: Save locally
+      await StorageService.instance.savePendingRespondent(respondent);
+      debugPrint('💾 Respondent saved locally for later sync');
+
+      // Return the local respondent
+      return respondent;
     }
   }
 
   Future<Respondent> updateRespondent(String id, Map<String, dynamic> data) async {
     try {
-      print('📤 Updating respondent: $id');
-      print('📦 Data: ${json.encode(data)}');
-
       final headers = await _getHeaders();
       final response = await http.put(
         Uri.parse('$baseUrl/respondents/$id'),
         headers: headers,
         body: json.encode(data),
-      ).timeout(const Duration(seconds: 30));
-
-      print('📥 Response status: ${response.statusCode}');
+      ).timeout(_defaultTimeout);
 
       if (response.statusCode == 200) {
-        print('✅ Respondent updated successfully');
         return Respondent.fromJson(json.decode(response.body));
       } else {
-        final errorBody = json.decode(response.body);
-        throw Exception(errorBody['message'] ?? 'Failed to update respondent');
+        throw Exception('Failed to update respondent');
       }
-    } on SocketException {
-      throw Exception('No internet connection');
-    } on TimeoutException {
-      throw Exception('Request timeout');
     } catch (e) {
+      debugPrint('⚠️ Update failed, will sync later: $e');
       throw Exception('Failed to update respondent: $e');
     }
   }
 
-  // ==================== LOCATION APIs ====================
+  // ==================== LOCATION APIs (OFFLINE FIRST) ====================
 
+  /// Create location - always saves locally first, then tries API
   Future<LocationTracking> createLocation(LocationTracking location) async {
+    // Always save locally first
+    await StorageService.instance.savePendingLocation(location);
+
     try {
       final headers = await _getHeaders();
       final response = await http.post(
         Uri.parse('$baseUrl/locations'),
         headers: headers,
         body: json.encode(location.toJson()),
-      ).timeout(const Duration(seconds: 30));
+      ).timeout(_shortTimeout);
 
       if (response.statusCode == 200 || response.statusCode == 201) {
+        debugPrint('✅ Location synced to server');
         return LocationTracking.fromJson(json.decode(response.body));
       } else {
         throw Exception('Failed to create location: ${response.statusCode}');
       }
     } catch (e) {
-      throw Exception('Failed to create location: $e');
+      debugPrint('⚠️ Location will sync later: $e');
+      // Return the local location - it's already saved
+      return location;
     }
   }
 
   Future<void> createLocationsBatch(List<LocationTracking> locations) async {
+    if (locations.isEmpty) return;
+
     try {
       final headers = await _getHeaders();
       final response = await http.post(
@@ -477,10 +452,13 @@ class ApiService {
         }),
       ).timeout(const Duration(seconds: 45));
 
-      if (response.statusCode != 200) {
+      if (response.statusCode == 200) {
+        debugPrint('✅ Batch of ${locations.length} locations synced');
+      } else {
         throw Exception('Failed to create locations batch: ${response.statusCode}');
       }
     } catch (e) {
+      debugPrint('⚠️ Batch sync failed: $e');
       throw Exception('Failed to create locations batch: $e');
     }
   }
@@ -492,7 +470,7 @@ class ApiService {
           ? Uri.parse('$baseUrl/locations').replace(queryParameters: {'user_id': userId})
           : Uri.parse('$baseUrl/locations');
 
-      final response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 30));
+      final response = await http.get(uri, headers: headers).timeout(_defaultTimeout);
 
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
@@ -501,7 +479,8 @@ class ApiService {
         throw Exception('Failed to load locations: ${response.statusCode}');
       }
     } catch (e) {
-      throw Exception('Failed to load locations: $e');
+      // Return pending locations if API fails
+      return await StorageService.instance.getPendingLocations();
     }
   }
 
@@ -511,7 +490,7 @@ class ApiService {
       final response = await http.get(
         Uri.parse('$baseUrl/locations/latest'),
         headers: headers,
-      ).timeout(const Duration(seconds: 30));
+      ).timeout(_defaultTimeout);
 
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
@@ -520,7 +499,7 @@ class ApiService {
         throw Exception('Failed to load latest locations: ${response.statusCode}');
       }
     } catch (e) {
-      throw Exception('Failed to load latest locations: $e');
+      return await StorageService.instance.getPendingLocations();
     }
   }
 
@@ -533,7 +512,7 @@ class ApiService {
         Uri.parse('$baseUrl/messages'),
         headers: headers,
         body: json.encode(message.toJson()),
-      ).timeout(const Duration(seconds: 30));
+      ).timeout(_defaultTimeout);
 
       if (response.statusCode == 200) {
         return Message.fromJson(json.decode(response.body));
@@ -541,6 +520,8 @@ class ApiService {
         throw Exception('Failed to create message: ${response.statusCode}');
       }
     } catch (e) {
+      // Save locally for offline
+      await StorageService.instance.savePendingMessage(message);
       throw Exception('Failed to create message: $e');
     }
   }
@@ -552,7 +533,7 @@ class ApiService {
           ? Uri.parse('$baseUrl/messages').replace(queryParameters: {'message_type': messageType})
           : Uri.parse('$baseUrl/messages');
 
-      final response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 30));
+      final response = await http.get(uri, headers: headers).timeout(_defaultTimeout);
 
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
@@ -561,7 +542,8 @@ class ApiService {
         throw Exception('Failed to load messages: ${response.statusCode}');
       }
     } catch (e) {
-      throw Exception('Failed to load messages: $e');
+      // Return pending messages if offline
+      return await StorageService.instance.getPendingMessages();
     }
   }
 
@@ -572,7 +554,7 @@ class ApiService {
         Uri.parse('$baseUrl/messages/$messageId/respond'),
         headers: headers,
         body: json.encode({'response': responseText}),
-      ).timeout(const Duration(seconds: 30));
+      ).timeout(_defaultTimeout);
 
       if (response.statusCode == 200) {
         return Message.fromJson(json.decode(response.body));
@@ -591,16 +573,28 @@ class ApiService {
       final response = await http.get(
         Uri.parse('$baseUrl/faqs'),
         headers: {'Content-Type': 'application/json'},
-      ).timeout(const Duration(seconds: 30));
+      ).timeout(_defaultTimeout);
 
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
-        return data.map((json) => FAQ.fromJson(json)).toList();
+        final faqs = data.map((json) => FAQ.fromJson(json)).toList();
+
+        // Cache FAQs
+        await StorageService.instance.cacheFAQs(
+          data.map((d) => d as Map<String, dynamic>).toList(),
+        );
+
+        return faqs;
       } else {
         throw Exception('Failed to load FAQs: ${response.statusCode}');
       }
     } catch (e) {
-      throw Exception('Failed to load FAQs: $e');
+      // Return cached FAQs
+      final cached = await StorageService.instance.getCachedFAQs();
+      if (cached.isNotEmpty) {
+        return cached.map((json) => FAQ.fromJson(json)).toList();
+      }
+      return [];
     }
   }
 
@@ -612,7 +606,7 @@ class ApiService {
       final response = await http.get(
         Uri.parse('$baseUrl/dashboard/stats'),
         headers: headers,
-      ).timeout(const Duration(seconds: 30));
+      ).timeout(_defaultTimeout);
 
       if (response.statusCode == 200) {
         return json.decode(response.body);
@@ -620,7 +614,13 @@ class ApiService {
         throw Exception('Failed to load dashboard stats: ${response.statusCode}');
       }
     } catch (e) {
-      throw Exception('Failed to load dashboard stats: $e');
+      // Return empty stats for offline
+      return {
+        'total_surveys': 0,
+        'total_respondents': 0,
+        'pending': 0,
+        'completed': 0,
+      };
     }
   }
 }
