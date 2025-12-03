@@ -4,12 +4,14 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/network_provider.dart';
 import '../../providers/location_provider.dart';
-import '../../providers/fraud_detection_provider.dart'; // 🆕 NEW
+import '../../providers/fraud_detection_provider.dart';
 import '../../models/user.dart';
-import '../../models/sensor_data.dart'; // 🆕 NEW
-import '../../widgets/fraud_detection_widgets.dart'; // 🆕 NEW
-import '../auth/onboarding_screen.dart'; // 🔧 FIX: Changed from login_screen to onboarding_screen
+import '../../models/sensor_data.dart';
+import '../../widgets/fraud_detection_widgets.dart';
+import '../auth/onboarding_screen.dart';
 
+/// Profile Screen yang dimodifikasi
+/// 🔒 Toggle tracking DIHAPUS - tracking selalu aktif saat user login
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -22,14 +24,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String? _verificationCode;
   final TextEditingController _codeController = TextEditingController();
 
-  // 🆕 NEW: Device security info
+  // Device security info
   DeviceSecurityInfo? _securityInfo;
   bool _isLoadingSecurityInfo = false;
 
   @override
   void initState() {
     super.initState();
-    _loadDeviceSecurityInfo(); // 🆕 NEW
+    _loadDeviceSecurityInfo();
   }
 
   @override
@@ -38,7 +40,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     super.dispose();
   }
 
-  // 🆕 NEW: Load device security info
   Future<void> _loadDeviceSecurityInfo() async {
     setState(() => _isLoadingSecurityInfo = true);
     try {
@@ -49,177 +50,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     } finally {
       setState(() => _isLoadingSecurityInfo = false);
     }
-  }
-
-  /// Toggle location tracking with improved error handling
-  Future<void> _toggleLocationTracking(bool value) async {
-    final locationProvider = context.read<LocationProvider>();
-    final user = context.read<AuthProvider>().user;
-
-    if (user == null) {
-      _showError('User not found');
-      return;
-    }
-
-    try {
-      if (value) {
-        _showLoadingDialog('Starting location tracking...');
-        // 🆕 UPDATED: Use tracking with fraud detection
-        await locationProvider.startTrackingWithFraudDetection(user.id);
-        if (mounted) Navigator.pop(context);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Row(
-                children: [
-                  Icon(Icons.check_circle, color: Colors.white),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: Text('Location tracking with fraud detection started'),
-                  ),
-                ],
-              ),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 3),
-            ),
-          );
-        }
-      } else {
-        await locationProvider.stopTracking();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Row(
-                children: [
-                  Icon(Icons.info, color: Colors.white),
-                  SizedBox(width: 12),
-                  Text('Location tracking stopped'),
-                ],
-              ),
-              backgroundColor: Colors.grey,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (Navigator.canPop(context)) {
-        Navigator.pop(context);
-      }
-
-      String errorMessage = 'Failed to toggle location tracking';
-      String actionMessage = '';
-      bool showSettings = false;
-
-      if (e.toString().contains('PERMISSION_DENIED_FOREVER')) {
-        errorMessage = 'Location permission permanently denied';
-        actionMessage = 'Please enable location permission in app settings';
-        showSettings = true;
-      } else if (e.toString().contains('PERMISSION_DENIED')) {
-        errorMessage = 'Location permission denied';
-        actionMessage = 'Location permission is required for tracking';
-      } else if (e.toString().contains('Location service')) {
-        errorMessage = 'Location service disabled';
-        actionMessage = 'Please enable GPS in your device settings';
-        showSettings = true;
-      } else {
-        errorMessage = 'Error: ${e.toString()}';
-      }
-
-      if (mounted) {
-        _showErrorDialog(
-          errorMessage,
-          actionMessage,
-          showSettings: showSettings,
-        );
-      }
-    }
-  }
-
-  void _showLoadingDialog(String message) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(height: 20),
-            Text(message),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showError(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.error, color: Colors.white),
-            const SizedBox(width: 12),
-            Expanded(child: Text(message)),
-          ],
-        ),
-        backgroundColor: Colors.red,
-        duration: const Duration(seconds: 4),
-      ),
-    );
-  }
-
-  void _showErrorDialog(String title, String message, {bool showSettings = false}) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.red.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.error_outline, color: Colors.red),
-            ),
-            const SizedBox(width: 12),
-            const Expanded(child: Text('Error')),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-              ),
-            ),
-            if (message.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(message),
-            ],
-          ],
-        ),
-        actions: [
-          if (showSettings)
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                openAppSettings();
-              },
-              child: const Text('Open Settings'),
-            ),
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
   }
 
   void _showLogoutDialog() {
@@ -255,7 +85,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
               'Apakah yakin logout?',
               style: TextStyle(fontSize: 14, color: Colors.grey),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 12),
+            // 🆕 Warning tentang tracking
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF3E0),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline, color: Color(0xFFFF9800), size: 20),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Tracking lokasi dan fraud detection akan dihentikan saat logout.',
+                      style: TextStyle(fontSize: 12, color: Color(0xFFE65100)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -342,24 +193,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() => _isLoggingOut = true);
 
     try {
-      // Stop location tracking
-      final locationProvider = context.read<LocationProvider>();
-      if (locationProvider.isTracking) {
-        await locationProvider.stopTracking();
-      }
-
-      // 🆕 NEW: Stop fraud detection monitoring
-      final fraudProvider = context.read<FraudDetectionProvider>();
-      if (fraudProvider.isMonitoring) {
-        await fraudProvider.stopMonitoring();
-      }
-
-      // Logout
+      // 🆕 Logout akan otomatis stop semua services
       final authProvider = context.read<AuthProvider>();
       await authProvider.logout();
 
       if (mounted) {
-        // 🔧 FIX: Navigate to OnboardingScreen instead of LoginScreen
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (context) => const OnboardingScreen()),
               (route) => false,
@@ -369,15 +207,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.error, color: Colors.white),
-                const SizedBox(width: 12),
-                Expanded(child: Text('Logout error: $e')),
-              ],
-            ),
+            content: Text('Logout error: $e'),
             backgroundColor: Colors.red,
-            duration: const Duration(seconds: 5),
           ),
         );
       }
@@ -393,7 +224,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final user = context.watch<AuthProvider>().user;
     final networkProvider = context.watch<NetworkProvider>();
     final locationProvider = context.watch<LocationProvider>();
-    final fraudProvider = context.watch<FraudDetectionProvider>(); // 🆕 NEW
+    final fraudProvider = context.watch<FraudDetectionProvider>();
 
     return Scaffold(
       body: CustomScrollView(
@@ -471,7 +302,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
           SliverToBoxAdapter(
             child: Column(
               children: [
-                // 🆕 NEW: Device Security Status Section
+                // 🆕 Tracking Status Card - READ ONLY (tanpa toggle)
+                _buildProtectionStatusCard(locationProvider, fraudProvider),
+
+                // Device Security Status Section
                 _buildSection(
                   'Keamanan Perangkat',
                   [
@@ -494,34 +328,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ],
                 ),
 
-                _buildSection(
-                  'Location Tracking',
-                  [
-                    _buildSwitchTile(
-                      icon: Icons.my_location,
-                      title: 'Background Tracking',
-                      subtitle: locationProvider.isTracking
-                          ? 'Tracking with fraud detection active'
-                          : 'Enable to track location',
-                      value: locationProvider.isTracking,
-                      onChanged: _toggleLocationTracking,
-                    ),
-                    // 🆕 NEW: Fraud Detection Toggle
-                    _buildSwitchTile(
-                      icon: Icons.security,
-                      title: 'Fraud Detection',
-                      subtitle: locationProvider.isFraudDetectionEnabled
-                          ? 'Location fraud detection active'
-                          : 'Enable for extra security',
-                      value: locationProvider.isFraudDetectionEnabled,
-                      onChanged: (value) {
-                        locationProvider.setFraudDetectionEnabled(value);
-                      },
-                    ),
-                  ],
-                ),
-
-                // 🆕 NEW: Fraud Statistics
+                // Fraud Statistics
                 if (fraudProvider.totalAnalyzed > 0)
                   _buildSection(
                     'Fraud Statistics',
@@ -531,10 +338,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         title: const Text('Total Analyzed'),
                         trailing: Text(
                           '${fraudProvider.totalAnalyzed}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                         ),
                       ),
                       ListTile(
@@ -583,9 +387,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ? const Color(0xFF4CAF50)
                             : const Color(0xFFFF9800),
                       ),
-                      title: Text(
-                        networkProvider.isConnected ? 'Online' : 'Offline',
-                      ),
+                      title: Text(networkProvider.isConnected ? 'Online' : 'Offline'),
                       subtitle: Text(
                         networkProvider.pendingSync > 0
                             ? '${networkProvider.pendingSync} items pending sync'
@@ -601,6 +403,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                   ],
                 ),
+
                 _buildSection(
                   'About',
                   [
@@ -608,6 +411,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     _buildInfoTile('User ID', user?.id.substring(0, 8) ?? ''),
                   ],
                 ),
+
                 Padding(
                   padding: const EdgeInsets.all(16),
                   child: ElevatedButton.icon(
@@ -630,6 +434,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     onPressed: _isLoggingOut ? null : _showLogoutDialog,
                   ),
                 ),
+
                 Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
@@ -654,16 +459,179 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  // 🆕 NEW: Build security summary widget
+  /// 🆕 NEW: Build protection status card - READ ONLY (tidak ada toggle)
+  Widget _buildProtectionStatusCard(
+      LocationProvider locationProvider,
+      FraudDetectionProvider fraudProvider,
+      ) {
+    final isFullyProtected = locationProvider.isTracking && fraudProvider.isMonitoring;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: isFullyProtected
+                          ? const Color(0xFFE8F5E9)
+                          : const Color(0xFFFFEBEE),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      isFullyProtected ? Icons.security : Icons.security_outlined,
+                      color: isFullyProtected
+                          ? const Color(0xFF4CAF50)
+                          : const Color(0xFFF44336),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          isFullyProtected
+                              ? 'Fully Protected'
+                              : 'Protection Incomplete',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: isFullyProtected
+                                ? const Color(0xFF4CAF50)
+                                : const Color(0xFFF44336),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          isFullyProtected
+                              ? 'Lokasi dan aktivitas Anda dipantau'
+                              : 'Beberapa service tidak aktif',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // 🔒 Status dot (bukan toggle)
+                  Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isFullyProtected
+                          ? const Color(0xFF4CAF50)
+                          : const Color(0xFFF44336),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // 🔒 Info box - menjelaskan bahwa tracking tidak bisa dimatikan
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF5F5F5),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.lock, size: 18, color: Colors.grey[600]),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Tracking otomatis aktif untuk memastikan integritas data survei. Fitur ini tidak dapat dinonaktifkan.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              // Status details
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _buildStatusItem(
+                    'GPS',
+                    locationProvider.isTracking,
+                    Icons.gps_fixed,
+                  ),
+                  _buildStatusItem(
+                    'Fraud',
+                    fraudProvider.isMonitoring,
+                    Icons.security,
+                  ),
+                  _buildStatusItem(
+                    'Sensors',
+                    fraudProvider.isMonitoring,
+                    Icons.sensors,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusItem(String label, bool isActive, IconData icon) {
+    return Column(
+      children: [
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: isActive
+                ? const Color(0xFFE8F5E9)
+                : const Color(0xFFFFEBEE),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(
+            icon,
+            size: 18,
+            color: isActive ? const Color(0xFF4CAF50) : const Color(0xFFF44336),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            color: Colors.grey[600],
+          ),
+        ),
+        Icon(
+          isActive ? Icons.check_circle : Icons.cancel,
+          color: isActive ? const Color(0xFF4CAF50) : const Color(0xFFF44336),
+          size: 14,
+        ),
+      ],
+    );
+  }
+
   Widget _buildSecuritySummary(DeviceSecurityInfo info) {
     final isSecure = info.securityScore >= 0.7;
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: isSecure
-            ? const Color(0xFFE8F5E9)
-            : const Color(0xFFFFEBEE),
+        color: isSecure ? const Color(0xFFE8F5E9) : const Color(0xFFFFEBEE),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -672,9 +640,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             children: [
               Icon(
                 isSecure ? Icons.verified_user : Icons.warning,
-                color: isSecure
-                    ? const Color(0xFF4CAF50)
-                    : const Color(0xFFF44336),
+                color: isSecure ? const Color(0xFF4CAF50) : const Color(0xFFF44336),
                 size: 32,
               ),
               const SizedBox(width: 12),
@@ -694,10 +660,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     Text(
                       'Security Score: ${(info.securityScore * 100).toInt()}%',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.grey[600],
-                      ),
+                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
                     ),
                   ],
                 ),
@@ -712,18 +675,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _buildSecurityItem(
-                'Mock GPS',
-                !info.isMockLocationEnabled,
-              ),
-              _buildSecurityItem(
-                'Root',
-                !info.isDeviceRooted,
-              ),
-              _buildSecurityItem(
-                'Emulator',
-                !info.isEmulator,
-              ),
+              _buildSecurityItem('Mock GPS', !info.isMockLocationEnabled),
+              _buildSecurityItem('Root', !info.isDeviceRooted),
+              _buildSecurityItem('Emulator', !info.isEmulator),
             ],
           ),
         ],
@@ -742,10 +696,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         const SizedBox(height: 4),
         Text(
           label,
-          style: TextStyle(
-            fontSize: 11,
-            color: Colors.grey[600],
-          ),
+          style: TextStyle(fontSize: 11, color: Colors.grey[600]),
         ),
       ],
     );
@@ -771,25 +722,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           child: Column(children: children),
         ),
       ],
-    );
-  }
-
-  Widget _buildSwitchTile({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required bool value,
-    required Function(bool) onChanged,
-  }) {
-    return ListTile(
-      leading: Icon(icon, color: const Color(0xFF2196F3)),
-      title: Text(title),
-      subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
-      trailing: Switch(
-        value: value,
-        onChanged: onChanged,
-        activeColor: const Color(0xFF2196F3),
-      ),
     );
   }
 

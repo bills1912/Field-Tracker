@@ -299,44 +299,15 @@ class FraudFlagItem extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
-              Text(
-                flag.description,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.grey[700],
-                ),
-              ),
-              if (expanded && flag.metadata != null) ...[
+              if (expanded || flag.description.isNotEmpty) ...[
                 const SizedBox(height: 8),
-                const Divider(),
-                const SizedBox(height: 4),
-                ...flag.metadata!.entries.map((entry) {
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Row(
-                      children: [
-                        Text(
-                          '${entry.key}: ',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        Expanded(
-                          child: Text(
-                            '${entry.value}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey[800],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }),
+                Text(
+                  flag.description,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                ),
               ],
             ],
           ),
@@ -346,164 +317,88 @@ class FraudFlagItem extends StatelessWidget {
   }
 }
 
-/// Widget untuk menampilkan summary fraud analysis
-class FraudAnalysisSummary extends StatelessWidget {
+/// Widget untuk menampilkan fraud analysis card
+class FraudAnalysisCard extends StatelessWidget {
   final LocationFraudResult result;
-  final bool compact;
+  final VoidCallback? onTap;
 
-  const FraudAnalysisSummary({
+  const FraudAnalysisCard({
     super.key,
     required this.result,
-    this.compact = false,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    if (compact) {
-      return _buildCompactView();
-    }
-    return _buildFullView(context);
-  }
-
-  Widget _buildCompactView() {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: result.isFraudulent
-            ? const Color(0xFFFFEBEE)
-            : const Color(0xFFE8F5E9),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: result.isFraudulent
-              ? const Color(0xFFF44336)
-              : const Color(0xFF4CAF50),
-          width: 1,
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            result.isFraudulent
-                ? Icons.warning_amber_rounded
-                : Icons.verified_rounded,
-            color: result.isFraudulent
-                ? const Color(0xFFF44336)
-                : const Color(0xFF4CAF50),
-            size: 28,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  result.isFraudulent ? 'Lokasi Mencurigakan' : 'Lokasi Valid',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: result.isFraudulent
-                        ? const Color(0xFFF44336)
-                        : const Color(0xFF4CAF50),
-                  ),
-                ),
-                Text(
-                  'Trust Score: ${(result.trustScore * 100).toInt()}%',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (result.flags.isNotEmpty)
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-              ),
-              child: Text(
-                '${result.flags.length}',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: result.isFraudulent
-                      ? const Color(0xFFF44336)
-                      : const Color(0xFF4CAF50),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFullView(BuildContext context) {
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header
-            Row(
-              children: [
-                TrustScoreGauge(
-                  trustScore: result.trustScore,
-                  size: 80,
-                  showLabel: false,
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      RiskLevelBadge(riskLevel: result.riskLevel),
-                      const SizedBox(height: 8),
-                      Text(
-                        result.isFraudulent
-                            ? '⚠️ Lokasi terdeteksi mencurigakan'
-                            : '✅ Lokasi terverifikasi',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  TrustScoreGauge(
+                    trustScore: result.trustScore,
+                    size: 80,
+                    showLabel: false,
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        RiskLevelBadge(riskLevel: result.riskLevel),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Analisis ${result.isFraudulent ? "Mencurigakan" : "Normal"}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: result.isFraudulent
+                                ? const Color(0xFFF44336)
+                                : const Color(0xFF4CAF50),
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${result.flags.length} flag terdeteksi',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey[600],
+                        const SizedBox(height: 4),
+                        Text(
+                          '${result.flags.length} flag terdeteksi',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey[600],
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+
+              if (result.flags.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                const Divider(),
+                const SizedBox(height: 8),
+                const Text(
+                  'Detail Temuan:',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
                   ),
                 ),
+                const SizedBox(height: 8),
+                ...result.flags.map((flag) => FraudFlagItem(flag: flag)),
               ],
-            ),
 
-            if (result.flags.isNotEmpty) ...[
+              // Analysis details
               const SizedBox(height: 16),
               const Divider(),
               const SizedBox(height: 8),
-              const Text(
-                'Detail Temuan:',
-                style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 14,
-                ),
-              ),
-              const SizedBox(height: 8),
-              ...result.flags.map((flag) => FraudFlagItem(flag: flag)),
+              _buildAnalysisDetails(),
             ],
-
-            // Analysis details
-            const SizedBox(height: 16),
-            const Divider(),
-            const SizedBox(height: 8),
-            _buildAnalysisDetails(),
-          ],
+          ),
         ),
       ),
     );
@@ -596,10 +491,12 @@ class FraudAnalysisSummary extends StatelessWidget {
 /// Widget untuk menampilkan device security status
 class DeviceSecurityStatus extends StatelessWidget {
   final DeviceSecurityInfo securityInfo;
+  final VoidCallback? onRefresh;
 
   const DeviceSecurityStatus({
     super.key,
     required this.securityInfo,
+    this.onRefresh,
   });
 
   @override
@@ -647,6 +544,11 @@ class DeviceSecurityStatus extends StatelessWidget {
                     ],
                   ),
                 ),
+                if (onRefresh != null)
+                  IconButton(
+                    icon: const Icon(Icons.refresh),
+                    onPressed: onRefresh,
+                  ),
               ],
             ),
             const SizedBox(height: 16),
@@ -742,6 +644,391 @@ class DeviceSecurityStatus extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ============================================================================
+// 🆕 NEW WIDGETS FOR AUTO-TRACKING FEATURE
+// ============================================================================
+
+/// 🆕 Widget indicator status tracking (untuk status bar)
+class TrackingStatusIndicator extends StatelessWidget {
+  final bool isTracking;
+  final bool isFraudDetectionEnabled;
+  final VoidCallback? onTap;
+
+  const TrackingStatusIndicator({
+    super.key,
+    required this.isTracking,
+    required this.isFraudDetectionEnabled,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isFullyProtected = isTracking && isFraudDetectionEnabled;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: isFullyProtected
+              ? const Color(0xFFE8F5E9)
+              : const Color(0xFFFFEBEE),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              isFullyProtected ? Icons.security : Icons.security_outlined,
+              size: 16,
+              color: isFullyProtected
+                  ? const Color(0xFF4CAF50)
+                  : const Color(0xFFF44336),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              isFullyProtected ? 'Protected' : 'Not Protected',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: isFullyProtected
+                    ? const Color(0xFF4CAF50)
+                    : const Color(0xFFF44336),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 🆕 Widget untuk menampilkan status protection secara detail (untuk Profile)
+/// 🔒 Read-only - tidak ada toggle
+class ProtectionStatusCard extends StatelessWidget {
+  final bool isTracking;
+  final bool isFraudMonitoring;
+  final VoidCallback? onFixTap;
+
+  const ProtectionStatusCard({
+    super.key,
+    required this.isTracking,
+    required this.isFraudMonitoring,
+    this.onFixTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isFullyProtected = isTracking && isFraudMonitoring;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            // Header
+            Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: isFullyProtected
+                        ? const Color(0xFFE8F5E9)
+                        : const Color(0xFFFFEBEE),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    isFullyProtected ? Icons.security : Icons.security_outlined,
+                    color: isFullyProtected
+                        ? const Color(0xFF4CAF50)
+                        : const Color(0xFFF44336),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isFullyProtected
+                            ? 'Fully Protected'
+                            : 'Protection Incomplete',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                          color: isFullyProtected
+                              ? const Color(0xFF4CAF50)
+                              : const Color(0xFFF44336),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        isFullyProtected
+                            ? 'Lokasi dan aktivitas Anda dipantau'
+                            : 'Beberapa service tidak aktif',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // 🔒 Status dot (bukan toggle)
+                Container(
+                  width: 12,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isFullyProtected
+                        ? const Color(0xFF4CAF50)
+                        : const Color(0xFFF44336),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // 🔒 Info box - menjelaskan bahwa tracking tidak bisa dimatikan
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF5F5F5),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.lock, size: 18, color: Colors.grey[600]),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Tracking otomatis aktif untuk memastikan integritas data survei. Fitur ini tidak dapat dinonaktifkan.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // Status details
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildStatusItem('GPS', isTracking, Icons.gps_fixed),
+                _buildStatusItem('Fraud', isFraudMonitoring, Icons.security),
+                _buildStatusItem('Sensors', isFraudMonitoring, Icons.sensors),
+              ],
+            ),
+
+            // Fix button jika tidak fully protected
+            if (!isFullyProtected && onFixTap != null) ...[
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: onFixTap,
+                  icon: const Icon(Icons.build, size: 18),
+                  label: const Text('Fix Protection'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF44336),
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusItem(String label, bool isActive, IconData icon) {
+    return Column(
+      children: [
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: isActive
+                ? const Color(0xFFE8F5E9)
+                : const Color(0xFFFFEBEE),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(
+            icon,
+            size: 18,
+            color: isActive ? const Color(0xFF4CAF50) : const Color(0xFFF44336),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            color: Colors.grey[600],
+          ),
+        ),
+        Icon(
+          isActive ? Icons.check_circle : Icons.cancel,
+          color: isActive ? const Color(0xFF4CAF50) : const Color(0xFFF44336),
+          size: 14,
+        ),
+      ],
+    );
+  }
+}
+
+/// 🆕 Widget untuk menampilkan fraud statistics summary
+class FraudStatisticsSummary extends StatelessWidget {
+  final int totalAnalyzed;
+  final int totalFlagged;
+  final double averageTrustScore;
+
+  const FraudStatisticsSummary({
+    super.key,
+    required this.totalAnalyzed,
+    required this.totalFlagged,
+    required this.averageTrustScore,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Fraud Detection Statistics',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildStatItem(
+                    'Total Analyzed',
+                    totalAnalyzed.toString(),
+                    Icons.analytics,
+                    const Color(0xFF2196F3),
+                  ),
+                ),
+                Expanded(
+                  child: _buildStatItem(
+                    'Flagged',
+                    totalFlagged.toString(),
+                    Icons.warning,
+                    totalFlagged > 0
+                        ? const Color(0xFFF44336)
+                        : const Color(0xFF4CAF50),
+                  ),
+                ),
+                Expanded(
+                  child: _buildStatItem(
+                    'Trust Score',
+                    '${(averageTrustScore * 100).toInt()}%',
+                    Icons.verified_user,
+                    averageTrustScore >= 0.7
+                        ? const Color(0xFF4CAF50)
+                        : const Color(0xFFFF9800),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatItem(String label, String value, IconData icon, Color color) {
+    return Column(
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, size: 20, color: color),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            color: Colors.grey[600],
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    );
+  }
+}
+
+/// 🆕 Widget compact untuk menampilkan status tracking di header/appbar
+class CompactTrackingStatus extends StatelessWidget {
+  final bool isTracking;
+  final bool isFraudEnabled;
+
+  const CompactTrackingStatus({
+    super.key,
+    required this.isTracking,
+    required this.isFraudEnabled,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isProtected = isTracking && isFraudEnabled;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: isProtected
+                ? const Color(0xFF4CAF50)
+                : const Color(0xFFF44336),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          isProtected ? 'Protected' : 'Unprotected',
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+            color: isProtected
+                ? const Color(0xFF4CAF50)
+                : const Color(0xFFF44336),
+          ),
+        ),
+      ],
     );
   }
 }

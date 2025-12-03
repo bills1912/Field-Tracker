@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as context;
 import 'package:provider/provider.dart';
 import 'package:workmanager/workmanager.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -8,14 +7,15 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 // Services
 import 'services/storage_service.dart';
 import 'services/location_service.dart';
-import 'services/sensor_collector_service.dart'; // 🆕 NEW
+import 'services/sensor_collector_service.dart';
+import 'services/sync_service.dart';
 
 // Providers
 import 'providers/auth_provider.dart';
 import 'providers/survey_provider.dart';
 import 'providers/location_provider.dart';
 import 'providers/network_provider.dart';
-import 'providers/fraud_detection_provider.dart'; // 🆕 NEW
+import 'providers/fraud_detection_provider.dart';
 
 // Screens
 import 'screens/splash_screen.dart';
@@ -53,9 +53,7 @@ Future<void> _initializeServices() async {
       isInDebugMode: false,
     );
 
-    // 🆕 NEW: Initialize sensor collection for fraud detection
-    // This will be started when user logs in
-    debugPrint('✅ All services initialized successfully');
+    debugPrint('✅ All core services initialized successfully');
   } catch (e) {
     debugPrint('❌ Error initializing services: $e');
   }
@@ -68,14 +66,9 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        // Authentication Provider
-        ChangeNotifierProvider<AuthProvider>(
-          create: (_) => AuthProvider(),
-        ),
-
-        // Survey Provider
-        ChangeNotifierProvider<SurveyProvider>(
-          create: (_) => SurveyProvider(),
+        // Fraud Detection Provider (harus di-init duluan)
+        ChangeNotifierProvider<FraudDetectionProvider>(
+          create: (_) => FraudDetectionProvider(),
         ),
 
         // Location Provider
@@ -88,9 +81,22 @@ class MyApp extends StatelessWidget {
           create: (_) => NetworkProvider(),
         ),
 
-        // 🆕 NEW: Fraud Detection Provider
-        ChangeNotifierProvider<FraudDetectionProvider>(
-          create: (_) => FraudDetectionProvider(),
+        // Survey Provider
+        ChangeNotifierProvider<SurveyProvider>(
+          create: (_) => SurveyProvider(),
+        ),
+
+        // Authentication Provider - dengan akses ke provider lain
+        ChangeNotifierProxyProvider2<LocationProvider, FraudDetectionProvider, AuthProvider>(
+          create: (_) => AuthProvider(),
+          update: (_, locationProvider, fraudProvider, authProvider) {
+            // Link providers ke AuthProvider
+            authProvider?.setProviders(
+              locationProvider: locationProvider,
+              fraudDetectionProvider: fraudProvider,
+            );
+            return authProvider ?? AuthProvider();
+          },
         ),
       ],
       child: MaterialApp(

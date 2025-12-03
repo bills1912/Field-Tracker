@@ -2,12 +2,18 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user.dart';
 import '../services/api_service.dart';
+import 'location_provider.dart';
+import 'fraud_detection_provider.dart';
 
 class AuthProvider with ChangeNotifier {
   User? _user;
   String? _token;
   bool _isLoading = false;
   String? _error;
+
+  // 🆕 NEW: References ke provider lain untuk auto-start
+  LocationProvider? _locationProvider;
+  FraudDetectionProvider? _fraudDetectionProvider;
 
   User? get user => _user;
   String? get token => _token;
@@ -17,6 +23,17 @@ class AuthProvider with ChangeNotifier {
 
   AuthProvider() {
     _loadUserFromStorage();
+  }
+
+  /// 🆕 NEW: Set provider references untuk auto-start
+  /// Dipanggil dari main.dart atau HomeScreen
+  void setProviders({
+    required LocationProvider locationProvider,
+    required FraudDetectionProvider fraudDetectionProvider,
+  }) {
+    _locationProvider = locationProvider;
+    _fraudDetectionProvider = fraudDetectionProvider;
+    debugPrint('✅ AuthProvider: Providers linked');
   }
 
   Future<void> _loadUserFromStorage() async {
@@ -41,6 +58,10 @@ class AuthProvider with ChangeNotifier {
             createdAt: DateTime.now(),
           );
           print('✅ User loaded: ${_user!.username} (${_user!.role.name})');
+
+          // 🆕 NEW: Auto-start services setelah load dari storage
+          // Akan dipanggil dari HomeScreen karena providers belum tersedia di sini
+
           notifyListeners();
         } else {
           print('⚠️ Incomplete user data in storage');
@@ -168,6 +189,11 @@ class AuthProvider with ChangeNotifier {
         await prefs.setString('role', _user!.role.name);
 
         print('✅ Data saved to storage');
+
+        // 🆕 NEW: Auto-start tracking dan fraud detection
+        print('🚀 Auto-starting tracking services...');
+        await _autoStartServices();
+
         print('='*60);
         print('🎉 LOGIN SUCCESS');
         print('='*60 + '\n');
@@ -206,6 +232,52 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
+  /// 🆕 NEW: Auto-start semua services setelah login
+  Future<void> _autoStartServices() async {
+    if (_user == null) {
+      debugPrint('⚠️ Cannot auto-start services: no user');
+      return;
+    }
+
+    final userId = _user!.id;
+
+    try {
+      debugPrint('🚀 Auto-starting all services for user: $userId');
+
+      // Start fraud detection monitoring
+      if (_fraudDetectionProvider != null) {
+        if (!_fraudDetectionProvider!.isMonitoring) {
+          await _fraudDetectionProvider!.startMonitoring();
+          debugPrint('✅ Fraud detection monitoring started');
+        }
+      } else {
+        debugPrint('⚠️ FraudDetectionProvider not available - will start from HomeScreen');
+      }
+
+      // Start location tracking with fraud detection
+      if (_locationProvider != null) {
+        if (!_locationProvider!.isTracking) {
+          await _locationProvider!.startTrackingWithFraudDetection(userId);
+          debugPrint('✅ Location tracking started');
+        }
+      } else {
+        debugPrint('⚠️ LocationProvider not available - will start from HomeScreen');
+      }
+
+      debugPrint('✅ Auto-start services completed');
+    } catch (e) {
+      debugPrint('⚠️ Some services failed to auto-start: $e');
+      // Jangan throw error, biarkan app tetap berjalan
+      // Services akan di-start dari HomeScreen
+    }
+  }
+
+  /// 🆕 NEW: Public method untuk start services (dipanggil dari HomeScreen)
+  Future<void> ensureServicesStarted() async {
+    if (_user == null) return;
+    await _autoStartServices();
+  }
+
   int min(int a, int b) => a < b ? a : b;
 
   String _parseErrorMessage(String error) {
@@ -234,6 +306,9 @@ class AuthProvider with ChangeNotifier {
       print('\n🚪 LOGOUT START');
       print('User: ${_user?.username}');
 
+      // 🆕 NEW: Stop all services before logout
+      await _stopAllServices();
+
       _user = null;
       _token = null;
       _error = null;
@@ -255,6 +330,29 @@ class AuthProvider with ChangeNotifier {
       print('❌ Error during logout: $e\n');
       _error = 'Logout gagal: $e';
       notifyListeners();
+    }
+  }
+
+  /// 🆕 NEW: Stop all services saat logout
+  Future<void> _stopAllServices() async {
+    try {
+      debugPrint('🛑 Stopping all services...');
+
+      // Stop location tracking
+      if (_locationProvider != null && _locationProvider!.isTracking) {
+        await _locationProvider!.stopTracking();
+        debugPrint('✅ Location tracking stopped');
+      }
+
+      // Stop fraud detection monitoring
+      if (_fraudDetectionProvider != null && _fraudDetectionProvider!.isMonitoring) {
+        await _fraudDetectionProvider!.stopMonitoring();
+        debugPrint('✅ Fraud detection monitoring stopped');
+      }
+
+      debugPrint('✅ All services stopped');
+    } catch (e) {
+      debugPrint('⚠️ Error stopping services: $e');
     }
   }
 

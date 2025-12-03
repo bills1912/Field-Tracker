@@ -150,7 +150,7 @@ class _FraudDetectionScreenState extends State<FraudDetectionScreen>
                   ),
                 ),
                 const SizedBox(height: 12),
-                FraudAnalysisSummary(result: provider.lastResult!),
+                FraudAnalysisCard(result: provider.lastResult!),
                 const SizedBox(height: 24),
               ],
 
@@ -496,7 +496,7 @@ class _FraudDetectionScreenState extends State<FraudDetectionScreen>
                 style: TextStyle(color: Colors.grey[600]),
               ),
               const SizedBox(height: 20),
-              FraudAnalysisSummary(result: result),
+              FraudAnalysisCard(result: result),
               const SizedBox(height: 20),
               Text(
                 'Lokasi',

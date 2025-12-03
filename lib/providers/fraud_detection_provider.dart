@@ -5,6 +5,7 @@ import '../services/location_fraud_detection_service.dart';
 import '../services/sensor_collector_service.dart';
 
 /// Provider untuk mengelola state fraud detection
+/// 🔒 Fraud detection tidak bisa dimatikan oleh user
 class FraudDetectionProvider with ChangeNotifier {
   // Services
   final LocationFraudDetectionService _fraudService = LocationFraudDetectionService.instance;
@@ -34,13 +35,22 @@ class FraudDetectionProvider with ChangeNotifier {
   double get fraudRate => _totalAnalyzed > 0 ? _totalFlagged / _totalAnalyzed : 0.0;
 
   /// Start monitoring (sensor collection)
+  /// 🆕 Dipanggil otomatis saat login
   Future<void> startMonitoring() async {
+    if (_isMonitoring) {
+      debugPrint('⚠️ Fraud monitoring already active');
+      return;
+    }
+
     try {
       _error = null;
+      debugPrint('🚀 Starting fraud detection monitoring...');
+
       await _sensorService.startCollecting();
       _isMonitoring = true;
-      notifyListeners();
+
       debugPrint('✅ Fraud detection monitoring started');
+      notifyListeners();
     } catch (e) {
       _error = 'Failed to start monitoring: $e';
       debugPrint('❌ $_error');
@@ -49,12 +59,18 @@ class FraudDetectionProvider with ChangeNotifier {
   }
 
   /// Stop monitoring
+  /// 🆕 Dipanggil otomatis saat logout
   Future<void> stopMonitoring() async {
+    if (!_isMonitoring) return;
+
     try {
+      debugPrint('🛑 Stopping fraud detection monitoring...');
+
       await _sensorService.stopCollecting();
       _isMonitoring = false;
-      notifyListeners();
+
       debugPrint('✅ Fraud detection monitoring stopped');
+      notifyListeners();
     } catch (e) {
       _error = 'Failed to stop monitoring: $e';
       debugPrint('❌ $_error');

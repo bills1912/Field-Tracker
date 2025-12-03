@@ -5,9 +5,8 @@ import '../../providers/auth_provider.dart';
 import '../../providers/location_provider.dart';
 import '../../providers/fraud_detection_provider.dart';
 import '../../providers/network_provider.dart';
-import '../../services/api_service.dart'; // 🆕 Penting untuk syncDeviceInfo
+import '../../services/api_service.dart';
 import '../surveys/surveys_list_screen.dart';
-// import '../map/map_screen.dart';
 import '../chat/chat_screen.dart';
 import '../profile/profile_screen.dart';
 
@@ -20,7 +19,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _currentIndex = 0;
-  bool _servicesStarted = false; // Flag agar tidak start berulang-ulang
+  bool _servicesInitialized = false;
 
   final List<Widget> _screens = [
     const SurveysListScreen(),
@@ -34,9 +33,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
-    // Coba jalankan service setelah tampilan selesai dirender
+    // 🆕 Link providers dan start services setelah frame selesai
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _attemptStartServices();
+      _initializeAndStartServices();
     });
   }
 
@@ -46,54 +45,72 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  // Mendeteksi jika aplikasi dibuka kembali dari background (Resume)
+  // Mendeteksi jika aplikasi dibuka kembali dari background
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      debugPrint("📱 App Resumed: Syncing device info & checking services...");
-      _attemptStartServices();
+      debugPrint("📱 App Resumed: Ensuring services are running...");
+      _ensureServicesRunning();
     }
   }
 
-  /// Fungsi Utama untuk Menyalakan Semua Service
-  Future<void> _attemptStartServices() async {
+  /// 🆕 NEW: Initialize dan start semua services
+  Future<void> _initializeAndStartServices() async {
     if (!mounted) return;
 
-    final user = context.read<AuthProvider>().user;
+    final authProvider = context.read<AuthProvider>();
+    final locationProvider = context.read<LocationProvider>();
+    final fraudProvider = context.read<FraudDetectionProvider>();
+    final user = authProvider.user;
 
-    // 1. Jika user belum siap (masih loading dari storage), kita tunggu.
+    // Tunggu user siap
     if (user == null) {
-      debugPrint("⏳ HomeScreen: Menunggu data user dimuat...");
+      debugPrint("⏳ HomeScreen: Menunggu user...");
       return;
     }
 
-    // 2. 🔥 FIX PERANGKAT: Selalu sync device info saat Home dimuat/resume
-    // Ini memperbaiki bug dimana ganti device tidak terdeteksi di Dashboard
+    // 🆕 Link providers ke AuthProvider
+    authProvider.setProviders(
+      locationProvider: locationProvider,
+      fraudDetectionProvider: fraudProvider,
+    );
+
+    // 🆕 Sync device info
     try {
       await ApiService.instance.syncDeviceInfo();
     } catch (e) {
-      debugPrint("⚠️ Device sync error in Home: $e");
+      debugPrint("⚠️ Device sync error: $e");
     }
 
-    // Cek Provider
+    // 🆕 AUTO-START: Pastikan services berjalan
+    await _ensureServicesRunning();
+
+    _servicesInitialized = true;
+  }
+
+  /// 🆕 NEW: Pastikan services selalu berjalan
+  Future<void> _ensureServicesRunning() async {
+    if (!mounted) return;
+
+    final user = context.read<AuthProvider>().user;
+    if (user == null) return;
+
     final locationProvider = context.read<LocationProvider>();
     final fraudProvider = context.read<FraudDetectionProvider>();
 
-    // Jika service sudah jalan semua, kita skip (kecuali Device Sync yg harus selalu jalan)
-    if (_servicesStarted && locationProvider.isTracking && fraudProvider.isMonitoring) {
-      return;
-    }
+    debugPrint("🔍 Checking services status...");
+    debugPrint("   - Location tracking: ${locationProvider.isTracking}");
+    debugPrint("   - Fraud monitoring: ${fraudProvider.isMonitoring}");
 
-    debugPrint("🚀 HomeScreen: User Ready (${user.username}). Memulai Services...");
-    _servicesStarted = true;
-
-    // 3. Cek & Start Fraud Monitoring (Sensor)
+    // 🔒 AUTO-START: Start fraud monitoring jika belum jalan
     if (!fraudProvider.isMonitoring) {
+      debugPrint("🚀 Auto-starting fraud monitoring...");
       await fraudProvider.startMonitoring();
     }
 
-    // 4. Cek & Start Location Tracking
+    // 🔒 AUTO-START: Start location tracking jika belum jalan
     if (!locationProvider.isTracking) {
+      debugPrint("🚀 Auto-starting location tracking...");
       try {
         await locationProvider.startTrackingWithFraudDetection(user.id);
         debugPrint("✅ Tracking service started");
@@ -103,13 +120,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
     }
 
-    // 5. 🔥 FORCE UPDATE: Paksa kirim lokasi sekarang juga agar Dashboard Online!
+    // 🆕 Force update lokasi pertama
     try {
-      debugPrint("📍 Force Update: Memicu pengiriman lokasi awal...");
+      debugPrint("📍 Force updating initial location...");
       await locationProvider.getCurrentLocationWithFraudCheck(user.id);
     } catch (e) {
       debugPrint("⚠️ Force update failed: $e");
     }
+
+    debugPrint("✅ Services check completed");
   }
 
   void _showTrackingErrorDialog(String error) {
@@ -117,14 +136,46 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: Row(
-          children: const [
+        title: const Row(
+          children: [
             Icon(Icons.location_off, color: Colors.red),
             SizedBox(width: 8),
-            Text("Tracking Gagal"),
+            Expanded(child: Text("Tracking Gagal")),
           ],
         ),
-        content: Text("Error: $error\n\nPastikan GPS aktif dan izin lokasi diberikan."),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("Error: $error"),
+            const SizedBox(height: 12),
+            const Text(
+              "Pastikan GPS aktif dan izin lokasi diberikan.",
+              style: TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+            const SizedBox(height: 12),
+            // 🆕 Info bahwa tracking wajib
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF3E0),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline, color: Color(0xFFFF9800), size: 18),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "Tracking lokasi wajib aktif untuk menggunakan aplikasi.",
+                      style: TextStyle(fontSize: 11, color: Color(0xFFE65100)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
         actions: [
           TextButton(
             onPressed: () {
@@ -136,7 +187,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ElevatedButton(
             onPressed: () {
               Navigator.pop(ctx);
-              _attemptStartServices();
+              _ensureServicesRunning();
             },
             child: const Text("Coba Lagi"),
           ),
@@ -147,14 +198,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    // Gunakan Consumer AuthProvider agar saat user selesai loading, UI me-refresh
-    // dan memanggil _attemptStartServices lagi
     return Consumer<AuthProvider>(
       builder: (context, authProvider, child) {
-        // Trigger logic start service jika user baru saja loaded
-        if (authProvider.user != null && !_servicesStarted) {
+        // 🆕 Trigger services check jika user baru tersedia
+        if (authProvider.user != null && !_servicesInitialized) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            _attemptStartServices();
+            _initializeAndStartServices();
           });
         }
 
@@ -178,7 +227,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             unselectedItemColor: const Color(0xFF666666),
             items: const [
               BottomNavigationBarItem(icon: Icon(Icons.poll), label: 'Surveys'),
-              BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Map'),
               BottomNavigationBarItem(icon: Icon(Icons.chat), label: 'Chat'),
               BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
             ],
@@ -189,15 +237,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildStatusBar() {
-    return Consumer2<NetworkProvider, LocationProvider>(
-      builder: (context, networkProvider, locationProvider, _) {
+    return Consumer3<NetworkProvider, LocationProvider, FraudDetectionProvider>(
+      builder: (context, networkProvider, locationProvider, fraudProvider, _) {
+        // 🆕 UPDATED: Status berdasarkan tracking DAN fraud detection
+        final isFullyProtected = locationProvider.isTracking && fraudProvider.isMonitoring;
+
         Color statusColor;
-        if (!locationProvider.isTracking) {
-          statusColor = const Color(0xFFF44336); // Merah (Bahaya/Mati)
+        String statusText;
+
+        if (!locationProvider.isTracking && !fraudProvider.isMonitoring) {
+          statusColor = const Color(0xFFF44336); // Merah (Tidak aktif)
+          statusText = 'Protection OFF';
+        } else if (!isFullyProtected) {
+          statusColor = const Color(0xFFFF9800); // Oranye (Partial)
+          statusText = 'Partial Protection';
         } else if (!networkProvider.isConnected) {
           statusColor = const Color(0xFFFF9800); // Oranye (Offline)
+          statusText = 'Protected (Offline)';
         } else {
           statusColor = const Color(0xFF4CAF50); // Hijau (Aman)
+          statusText = 'Fully Protected';
         }
 
         return Container(
@@ -224,29 +283,41 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                   ],
                 ),
-                // Tracking Status
+
+                // 🆕 Protection Status (menggantikan Tracking Status)
                 Row(
                   children: [
                     Icon(
-                      locationProvider.isTracking ? Icons.gps_fixed : Icons.gps_off,
+                      isFullyProtected ? Icons.security : Icons.security_outlined,
                       size: 14,
                       color: Colors.white,
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      locationProvider.isTracking ? 'Tracking ON' : 'Tracking OFF',
+                      statusText,
                       style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
                     ),
-                    if (!locationProvider.isTracking)
+                    // 🆕 Tombol FIX jika tidak fully protected
+                    if (!isFullyProtected)
                       GestureDetector(
-                        onTap: _attemptStartServices,
+                        onTap: _ensureServicesRunning,
                         child: Container(
                           margin: const EdgeInsets.only(left: 8),
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4)),
-                          child: const Text("FIX", style: TextStyle(color: Colors.red, fontSize: 10, fontWeight: FontWeight.bold)),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text(
+                            "FIX",
+                            style: TextStyle(
+                              color: Colors.red,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
-                      )
+                      ),
                   ],
                 ),
               ],

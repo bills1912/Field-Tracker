@@ -1,11 +1,11 @@
 import 'package:flutter/foundation.dart';
 import 'package:location/location.dart';
 import '../services/location_service.dart';
-import '../services/enhanced_location_service.dart'; // 🆕 NEW
+import '../services/enhanced_location_service.dart';
 import '../services/api_service.dart';
 import '../models/location_tracking.dart';
-import '../models/location_fraud_result.dart'; // 🆕 NEW
-import '../models/sensor_data.dart'; // 🆕 NEW
+import '../models/location_fraud_result.dart';
+import '../models/sensor_data.dart';
 
 class LocationProvider with ChangeNotifier {
   bool _isTracking = false;
@@ -14,10 +14,12 @@ class LocationProvider with ChangeNotifier {
   bool _isLoading = false;
   String? _error;
 
-  // 🆕 NEW: Fraud detection properties
+  // Fraud detection properties
   LocationFraudResult? _lastFraudResult;
   List<LocationFraudResult> _fraudHistory = [];
-  bool _isFraudDetectionEnabled = true;
+
+  // 🔒 LOCKED: Fraud detection selalu enabled, tidak bisa dimatikan
+  final bool _isFraudDetectionEnabled = true;
 
   bool get isTracking => _isTracking;
   LocationData? get currentLocation => _currentLocation;
@@ -25,16 +27,22 @@ class LocationProvider with ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get error => _error;
 
-  // 🆕 NEW: Fraud detection getters
+  // Fraud detection getters
   LocationFraudResult? get lastFraudResult => _lastFraudResult;
   List<LocationFraudResult> get fraudHistory => _fraudHistory;
   bool get isFraudDetectionEnabled => _isFraudDetectionEnabled;
   bool get hasRecentFraud => _lastFraudResult?.isFraudulent ?? false;
 
-  /// 🆕 NEW: Start tracking with fraud detection
+  /// Start tracking with fraud detection (RECOMMENDED - AUTO CALLED)
   Future<void> startTrackingWithFraudDetection(String userId) async {
+    if (_isTracking) {
+      debugPrint('⚠️ Tracking already active');
+      return;
+    }
+
     try {
       _error = null;
+      debugPrint('🚀 Starting tracking with fraud detection for user: $userId');
 
       // Use enhanced location service with fraud detection
       await EnhancedLocationService.instance.startTracking(
@@ -70,56 +78,45 @@ class LocationProvider with ChangeNotifier {
       );
 
       _isTracking = true;
+      debugPrint('✅ Tracking with fraud detection started');
       notifyListeners();
     } catch (e) {
       _error = e.toString();
       _isTracking = false;
+      debugPrint('❌ Failed to start tracking: $e');
       notifyListeners();
       rethrow;
     }
   }
 
-  /// Start location tracking (original method - still works)
+  /// Start location tracking
+  /// 🔒 MODIFIED: Selalu menggunakan fraud detection
   Future<void> startTracking(String userId) async {
-    try {
-      _error = null;
-
-      // 🆕 UPDATED: Use enhanced tracking if fraud detection is enabled
-      if (_isFraudDetectionEnabled) {
-        await startTrackingWithFraudDetection(userId);
-        return;
-      }
-
-      // Original tracking without fraud detection
-      await LocationService.instance.startTracking(userId);
-      _isTracking = true;
-
-      // Get initial location
-      await updateCurrentLocation();
-
-      notifyListeners();
-    } catch (e) {
-      _error = e.toString();
-      _isTracking = false;
-      notifyListeners();
-      rethrow;
-    }
+    // 🔒 ALWAYS use fraud detection - cannot be disabled
+    await startTrackingWithFraudDetection(userId);
   }
 
   /// Stop location tracking
   Future<void> stopTracking() async {
+    if (!_isTracking) return;
+
     try {
-      // 🆕 UPDATED: Stop enhanced location service if enabled
-      if (_isFraudDetectionEnabled) {
-        await EnhancedLocationService.instance.stopTracking();
-      } else {
+      debugPrint('🛑 Stopping location tracking...');
+
+      // Stop enhanced location service
+      await EnhancedLocationService.instance.stopTracking();
+
+      // Also try to stop basic service just in case
+      try {
         await LocationService.instance.stopTracking();
-      }
+      } catch (_) {}
 
       _isTracking = false;
+      debugPrint('✅ Location tracking stopped');
       notifyListeners();
     } catch (e) {
       _error = e.toString();
+      debugPrint('❌ Error stopping tracking: $e');
       notifyListeners();
     }
   }
@@ -135,7 +132,7 @@ class LocationProvider with ChangeNotifier {
     }
   }
 
-  /// 🆕 NEW: Get current location with fraud check
+  /// Get current location with fraud check
   Future<(LocationData?, LocationFraudResult?)> getCurrentLocationWithFraudCheck(
       String userId,
       ) async {
@@ -169,7 +166,7 @@ class LocationProvider with ChangeNotifier {
     }
   }
 
-  /// 🆕 NEW: Quick fraud check (without full tracking)
+  /// Quick fraud check (without full tracking)
   Future<bool> quickFraudCheck() async {
     try {
       return await EnhancedLocationService.instance.quickFraudCheck();
@@ -179,13 +176,16 @@ class LocationProvider with ChangeNotifier {
     }
   }
 
-  /// 🆕 NEW: Toggle fraud detection
+  /// 🔒 LOCKED: Fraud detection tidak bisa dimatikan
+  /// Method ini dipertahankan untuk backward compatibility, tapi tidak berpengaruh
   void setFraudDetectionEnabled(bool enabled) {
-    _isFraudDetectionEnabled = enabled;
+    // 🔒 LOCKED: Fraud detection selalu aktif untuk mencegah kecurangan
+    debugPrint('ℹ️ Fraud detection is always enabled and cannot be disabled');
+    // Tidak ada perubahan state, fraud detection tetap aktif
     notifyListeners();
   }
 
-  /// 🆕 NEW: Clear fraud history
+  /// Clear fraud history
   void clearFraudHistory() {
     _fraudHistory.clear();
     _lastFraudResult = null;
@@ -234,7 +234,7 @@ class LocationProvider with ChangeNotifier {
   /// Check tracking status
   void checkTrackingStatus() {
     _isTracking = LocationService.instance.isTracking ||
-        EnhancedLocationService.instance.isTracking; // 🆕 UPDATED
+        EnhancedLocationService.instance.isTracking;
     notifyListeners();
   }
 
