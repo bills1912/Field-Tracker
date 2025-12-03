@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../main/main_screen.dart';
+import 'login_method_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   final String? loginType;
@@ -243,7 +244,18 @@ class _LoginScreenState extends State<LoginScreen> {
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Color(0xFF0B6BA8)),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () {
+            if (Navigator.canPop(context)) {
+              Navigator.pop(context);
+            } else {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const LoginMethodScreen(),
+                ),
+              );
+            }
+          },
         ),
         title: Text(
           _loginTypeTitle,

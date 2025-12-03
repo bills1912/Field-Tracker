@@ -14,6 +14,8 @@ import '../models/survey_stats.dart';
 import 'storage_service.dart';
 import 'sensor_collector_service.dart';
 import '../models/sensor_data.dart';
+import '../main.dart';
+import '../screens/auth/onboarding_screen.dart';
 
 /// API Service dengan dukungan offline-first
 class ApiService {
@@ -27,6 +29,27 @@ class ApiService {
   // Timeout settings
   static const Duration _defaultTimeout = Duration(seconds: 30);
   static const Duration _shortTimeout = Duration(seconds: 10);
+
+  void _handleAuthError(http.Response response) {
+    if (response.statusCode == 401) {
+      final body = json.decode(response.body);
+
+      // Jika pesan errornya spesifik tentang device lain
+      if (body['detail'].toString().contains('logged in on another device') ||
+          body['detail'].toString().contains('Session expired')) {
+
+        debugPrint('⛔ Session Expired: Logged in elsewhere. Forcing logout...');
+
+        // Bersihkan data lokal
+        StorageService.instance.removeToken();
+        StorageService.instance.removeUser();
+        StorageService.instance.clearOnboardingStatus();
+
+        // Paksa pindah ke halaman Login
+        navigatorKey.currentState?.pushNamedAndRemoveUntil('/login', (route) => false);
+      }
+    }
+  }
 
   Future<Map<String, String>> _getHeaders() async {
     final token = await StorageService.instance.getToken();
@@ -86,6 +109,11 @@ class ApiService {
 
       debugPrint('📥 Status Code: ${response.statusCode}');
 
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
+
       if (response.statusCode == 200 || response.statusCode == 201) {
         final Map<String, dynamic> data = json.decode(response.body);
 
@@ -122,6 +150,11 @@ class ApiService {
         body: json.encode(userData),
       ).timeout(_defaultTimeout);
 
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
+
       if (response.statusCode == 200) {
         return json.decode(response.body);
       } else {
@@ -133,7 +166,7 @@ class ApiService {
     }
   }
 
-  Future<void> _syncDeviceInfo() async {
+  Future<void> syncDeviceInfo() async {
     try {
       // 1. Ambil data sensor terbaru
       final securityInfo = await SensorCollectorService.instance.getDeviceSecurityInfo();
@@ -141,13 +174,17 @@ class ApiService {
 
       // 2. Kirim ke endpoint baru
       final headers = await _getHeaders();
-      await http.post(
+      final response = await http.post(
         Uri.parse('$baseUrl/auth/device-sync'),
         headers: headers,
         body: json.encode(deviceInfoJson),
       ).timeout(_shortTimeout); // Timeout pendek agar tidak memblokir UI
 
-      debugPrint('📱 Device info synced successfully on auto-login');
+      if (response.statusCode == 200) {
+        debugPrint('✅ Device Info Updated: ${securityInfo.deviceModel}');
+      } else {
+        debugPrint('⚠️ Device Sync Failed: ${response.statusCode}');
+      }
     } catch (e) {
       debugPrint('⚠️ Failed to sync device info on auto-login: $e');
       // Jangan throw exception, karena ini proses background
@@ -162,10 +199,15 @@ class ApiService {
         headers: headers,
       ).timeout(_defaultTimeout);
 
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
+
       if (response.statusCode == 200) {
         final user = User.fromJson(json.decode(response.body));
         await StorageService.instance.saveUser(user);
-        _syncDeviceInfo();
+        syncDeviceInfo();
         return user;
       } else {
         throw Exception('Failed to get user info: ${response.statusCode}');
@@ -191,6 +233,11 @@ class ApiService {
         Uri.parse('$baseUrl/surveys'),
         headers: headers,
       ).timeout(_defaultTimeout);
+
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
 
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
@@ -226,6 +273,11 @@ class ApiService {
         headers: headers,
       ).timeout(_defaultTimeout);
 
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
+
       if (response.statusCode == 200) {
         return Survey.fromJson(json.decode(response.body));
       } else {
@@ -250,6 +302,11 @@ class ApiService {
         Uri.parse('$baseUrl/surveys/$surveyId/stats'),
         headers: headers,
       ).timeout(_shortTimeout);
+
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
 
       if (response.statusCode == 200) {
         final stats = SurveyStats.fromJson(json.decode(response.body));
@@ -292,6 +349,11 @@ class ApiService {
         body: json.encode(surveyData),
       ).timeout(_defaultTimeout);
 
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
+
       if (response.statusCode == 200) {
         return Survey.fromJson(json.decode(response.body));
       } else {
@@ -314,6 +376,11 @@ class ApiService {
           : Uri.parse('$baseUrl/respondents');
 
       final response = await http.get(uri, headers: headers).timeout(_defaultTimeout);
+
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
 
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
@@ -357,6 +424,11 @@ class ApiService {
         Uri.parse('$baseUrl/respondents/$id'),
         headers: headers,
       ).timeout(_defaultTimeout);
+
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
 
       if (response.statusCode == 200) {
         return Respondent.fromJson(json.decode(response.body));
@@ -408,6 +480,11 @@ class ApiService {
         body: json.encode(data),
       ).timeout(_shortTimeout);
 
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
+
       if (response.statusCode == 200 || response.statusCode == 201) {
         final responseData = json.decode(response.body);
         debugPrint('✅ Respondent created on server');
@@ -436,6 +513,11 @@ class ApiService {
         body: json.encode(data),
       ).timeout(_defaultTimeout);
 
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
+
       if (response.statusCode == 200) {
         return Respondent.fromJson(json.decode(response.body));
       } else {
@@ -461,6 +543,11 @@ class ApiService {
         headers: headers,
         body: json.encode(location.toJson()),
       ).timeout(_shortTimeout);
+
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         debugPrint('✅ Location synced to server');
@@ -488,6 +575,11 @@ class ApiService {
         }),
       ).timeout(const Duration(seconds: 45));
 
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
+
       if (response.statusCode == 200) {
         debugPrint('✅ Batch of ${locations.length} locations synced');
       } else {
@@ -508,6 +600,11 @@ class ApiService {
 
       final response = await http.get(uri, headers: headers).timeout(_defaultTimeout);
 
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
+
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
         return data.map((json) => LocationTracking.fromJson(json)).toList();
@@ -527,6 +624,11 @@ class ApiService {
         Uri.parse('$baseUrl/locations/latest'),
         headers: headers,
       ).timeout(_defaultTimeout);
+
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
 
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
@@ -550,6 +652,11 @@ class ApiService {
         body: json.encode(message.toJson()),
       ).timeout(_defaultTimeout);
 
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
+
       if (response.statusCode == 200) {
         return Message.fromJson(json.decode(response.body));
       } else {
@@ -570,6 +677,11 @@ class ApiService {
           : Uri.parse('$baseUrl/messages');
 
       final response = await http.get(uri, headers: headers).timeout(_defaultTimeout);
+
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
 
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
@@ -592,6 +704,11 @@ class ApiService {
         body: json.encode({'response': responseText}),
       ).timeout(_defaultTimeout);
 
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
+
       if (response.statusCode == 200) {
         return Message.fromJson(json.decode(response.body));
       } else {
@@ -610,6 +727,11 @@ class ApiService {
         Uri.parse('$baseUrl/faqs'),
         headers: {'Content-Type': 'application/json'},
       ).timeout(_defaultTimeout);
+
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
 
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
@@ -643,6 +765,11 @@ class ApiService {
         Uri.parse('$baseUrl/dashboard/stats'),
         headers: headers,
       ).timeout(_defaultTimeout);
+
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
 
       if (response.statusCode == 200) {
         return json.decode(response.body);

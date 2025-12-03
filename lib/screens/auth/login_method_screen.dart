@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'login_screen.dart'; // Your existing login screen
+import 'onboarding_screen.dart';
 
 class LoginMethodScreen extends StatefulWidget {
   const LoginMethodScreen({super.key});
@@ -162,7 +163,18 @@ class _LoginMethodScreenState extends State<LoginMethodScreen> {
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Color(0xFF0B6BA8)),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () {
+            if (Navigator.canPop(context)) {
+              Navigator.pop(context);
+            } else {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const OnboardingScreen(),
+                ),
+              );
+            }
+          },
         ),
         title: const Text(
           'Login',

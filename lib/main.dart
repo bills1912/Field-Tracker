@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as context;
 import 'package:provider/provider.dart';
 import 'package:workmanager/workmanager.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -21,6 +22,8 @@ import 'screens/splash_screen.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/home/home_screen.dart';
 import 'screens/respondent/add_respondent_screen.dart';
+
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -91,6 +94,7 @@ class MyApp extends StatelessWidget {
         ),
       ],
       child: MaterialApp(
+        navigatorKey: navigatorKey,
         title: 'Field Tracker',
         debugShowCheckedModeBanner: false,
         theme: _buildTheme(),
