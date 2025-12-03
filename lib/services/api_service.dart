@@ -12,6 +12,8 @@ import '../models/message.dart';
 import '../models/faq.dart';
 import '../models/survey_stats.dart';
 import 'storage_service.dart';
+import 'sensor_collector_service.dart';
+import '../models/sensor_data.dart';
 
 /// API Service dengan dukungan offline-first
 class ApiService {
@@ -51,6 +53,17 @@ class ApiService {
   Future<Map<String, dynamic>> login(String email, String password) async {
     debugPrint('\n' + '='*70);
     debugPrint('🌐 API SERVICE - LOGIN REQUEST');
+
+    Map<String, dynamic>? deviceInfoData;
+    try {
+      final securityInfo = await SensorCollectorService.instance.getDeviceSecurityInfo();
+      // Ubah nama key agar sesuai dengan snake_case yang diharapkan backend Python
+      deviceInfoData = securityInfo.toJson();
+      debugPrint('📱 Device Info collected: ${securityInfo.deviceModel}');
+    } catch (e) {
+      debugPrint('⚠️ Gagal mengambil info device: $e');
+    }
+
     debugPrint('='*70);
     debugPrint('📍 URL: $baseUrl/auth/login');
     debugPrint('📧 Email: $email');
@@ -59,6 +72,7 @@ class ApiService {
       final requestBody = {
         'email': email,
         'password': password,
+        if (deviceInfoData != null) 'device_info': deviceInfoData,
       };
 
       final response = await http.post(
@@ -119,6 +133,27 @@ class ApiService {
     }
   }
 
+  Future<void> _syncDeviceInfo() async {
+    try {
+      // 1. Ambil data sensor terbaru
+      final securityInfo = await SensorCollectorService.instance.getDeviceSecurityInfo();
+      final deviceInfoJson = securityInfo.toJson();
+
+      // 2. Kirim ke endpoint baru
+      final headers = await _getHeaders();
+      await http.post(
+        Uri.parse('$baseUrl/auth/device-sync'),
+        headers: headers,
+        body: json.encode(deviceInfoJson),
+      ).timeout(_shortTimeout); // Timeout pendek agar tidak memblokir UI
+
+      debugPrint('📱 Device info synced successfully on auto-login');
+    } catch (e) {
+      debugPrint('⚠️ Failed to sync device info on auto-login: $e');
+      // Jangan throw exception, karena ini proses background
+    }
+  }
+
   Future<User> getMe() async {
     try {
       final headers = await _getHeaders();
@@ -130,6 +165,7 @@ class ApiService {
       if (response.statusCode == 200) {
         final user = User.fromJson(json.decode(response.body));
         await StorageService.instance.saveUser(user);
+        _syncDeviceInfo();
         return user;
       } else {
         throw Exception('Failed to get user info: ${response.statusCode}');
