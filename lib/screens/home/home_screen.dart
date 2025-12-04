@@ -20,6 +20,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _currentIndex = 0;
   bool _servicesInitialized = false;
+  bool _isStartingServices = false; // 🆕 Prevent multiple simultaneous starts
 
   final List<Widget> _screens = [
     const SurveysListScreen(),
@@ -33,7 +34,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
-    // 🆕 Link providers dan start services setelah frame selesai
+    // 🆕 CRITICAL: Start services setelah frame selesai
+    // Ini akan menangani kasus auto-login (buka app tanpa logout)
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeAndStartServices();
     });
@@ -55,19 +57,33 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   /// 🆕 NEW: Initialize dan start semua services
+  /// CRITICAL: Ini dipanggil setiap kali HomeScreen dibuat (termasuk auto-login)
   Future<void> _initializeAndStartServices() async {
     if (!mounted) return;
+    if (_isStartingServices) return; // Prevent duplicate calls
+
+    _isStartingServices = true;
 
     final authProvider = context.read<AuthProvider>();
     final locationProvider = context.read<LocationProvider>();
     final fraudProvider = context.read<FraudDetectionProvider>();
     final user = authProvider.user;
 
-    // Tunggu user siap
+    // Tunggu user siap (mungkin masih loading dari SharedPreferences)
     if (user == null) {
       debugPrint("⏳ HomeScreen: Menunggu user...");
+      _isStartingServices = false;
+
+      // 🆕 Retry setelah delay jika user belum ready
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted && context.read<AuthProvider>().user != null) {
+          _initializeAndStartServices();
+        }
+      });
       return;
     }
+
+    debugPrint("🚀 HomeScreen: User Ready (${user.username}). Initializing services...");
 
     // 🆕 Link providers ke AuthProvider
     authProvider.setProviders(
@@ -82,14 +98,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       debugPrint("⚠️ Device sync error: $e");
     }
 
-    // 🆕 AUTO-START: Pastikan services berjalan
-    await _ensureServicesRunning();
+    // 🆕 CRITICAL: Selalu pastikan services berjalan
+    // Ini akan menangani kasus auto-login (app dibuka tanpa logout)
+    await _forceStartServices();
 
     _servicesInitialized = true;
+    _isStartingServices = false;
   }
 
-  /// 🆕 NEW: Pastikan services selalu berjalan
-  Future<void> _ensureServicesRunning() async {
+  /// 🆕 NEW: Force start services - dipanggil saat init dan resume
+  Future<void> _forceStartServices() async {
     if (!mounted) return;
 
     final user = context.read<AuthProvider>().user;
@@ -98,19 +116,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final locationProvider = context.read<LocationProvider>();
     final fraudProvider = context.read<FraudDetectionProvider>();
 
-    debugPrint("🔍 Checking services status...");
+    debugPrint("🔍 Force checking services status...");
     debugPrint("   - Location tracking: ${locationProvider.isTracking}");
     debugPrint("   - Fraud monitoring: ${fraudProvider.isMonitoring}");
 
-    // 🔒 AUTO-START: Start fraud monitoring jika belum jalan
+    // 🔒 FORCE START: Start fraud monitoring
     if (!fraudProvider.isMonitoring) {
-      debugPrint("🚀 Auto-starting fraud monitoring...");
-      await fraudProvider.startMonitoring();
+      debugPrint("🚀 Force starting fraud monitoring...");
+      try {
+        await fraudProvider.startMonitoring();
+        debugPrint("✅ Fraud monitoring started");
+      } catch (e) {
+        debugPrint("❌ Failed to start fraud monitoring: $e");
+      }
     }
 
-    // 🔒 AUTO-START: Start location tracking jika belum jalan
+    // 🔒 FORCE START: Start location tracking
     if (!locationProvider.isTracking) {
-      debugPrint("🚀 Auto-starting location tracking...");
+      debugPrint("🚀 Force starting location tracking...");
       try {
         await locationProvider.startTrackingWithFraudDetection(user.id);
         debugPrint("✅ Tracking service started");
@@ -120,15 +143,33 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
     }
 
-    // 🆕 Force update lokasi pertama
-    try {
-      debugPrint("📍 Force updating initial location...");
-      await locationProvider.getCurrentLocationWithFraudCheck(user.id);
-    } catch (e) {
-      debugPrint("⚠️ Force update failed: $e");
+    // 🆕 Force update lokasi pertama untuk memastikan data terkirim
+    if (locationProvider.isTracking) {
+      try {
+        debugPrint("📍 Force updating initial location...");
+        await locationProvider.getCurrentLocationWithFraudCheck(user.id);
+        debugPrint("✅ Initial location updated");
+      } catch (e) {
+        debugPrint("⚠️ Force update failed: $e");
+      }
     }
 
-    debugPrint("✅ Services check completed");
+    debugPrint("✅ Force start services completed");
+  }
+
+  /// 🆕 NEW: Pastikan services selalu berjalan (dipanggil saat resume)
+  Future<void> _ensureServicesRunning() async {
+    if (!mounted) return;
+    if (_isStartingServices) return;
+
+    final user = context.read<AuthProvider>().user;
+    if (user == null) {
+      debugPrint("⚠️ _ensureServicesRunning: No user, skipping...");
+      return;
+    }
+
+    // Re-use force start logic
+    await _forceStartServices();
   }
 
   void _showTrackingErrorDialog(String error) {
@@ -200,8 +241,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return Consumer<AuthProvider>(
       builder: (context, authProvider, child) {
-        // 🆕 Trigger services check jika user baru tersedia
-        if (authProvider.user != null && !_servicesInitialized) {
+        // 🆕 CRITICAL: Trigger services saat user tersedia (untuk auto-login)
+        // Ini menangani kasus ketika user sudah login sebelumnya
+        if (authProvider.user != null && !_servicesInitialized && !_isStartingServices) {
+          debugPrint("📱 Consumer detected user - triggering service init...");
           WidgetsBinding.instance.addPostFrameCallback((_) {
             _initializeAndStartServices();
           });

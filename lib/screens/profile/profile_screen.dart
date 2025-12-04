@@ -306,27 +306,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 _buildProtectionStatusCard(locationProvider, fraudProvider),
 
                 // Device Security Status Section
-                _buildSection(
-                  'Keamanan Perangkat',
-                  [
-                    if (_isLoadingSecurityInfo)
-                      const Padding(
-                        padding: EdgeInsets.all(16),
-                        child: Center(child: CircularProgressIndicator()),
-                      )
-                    else if (_securityInfo != null)
-                      Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: _buildSecuritySummary(_securityInfo!),
-                      )
-                    else
-                      ListTile(
-                        leading: const Icon(Icons.refresh, color: Color(0xFF2196F3)),
-                        title: const Text('Load Security Info'),
-                        onTap: _loadDeviceSecurityInfo,
-                      ),
-                  ],
-                ),
+                // _buildSection(
+                //   'Keamanan Perangkat',
+                //   [
+                //     if (_isLoadingSecurityInfo)
+                //       const Padding(
+                //         padding: EdgeInsets.all(16),
+                //         child: Center(child: CircularProgressIndicator()),
+                //       )
+                //     else if (_securityInfo != null)
+                //       Padding(
+                //         padding: const EdgeInsets.all(8),
+                //         child: _buildSecuritySummary(_securityInfo!),
+                //       )
+                //     else
+                //       ListTile(
+                //         leading: const Icon(Icons.refresh, color: Color(0xFF2196F3)),
+                //         title: const Text('Load Security Info'),
+                //         onTap: _loadDeviceSecurityInfo,
+                //       ),
+                //   ],
+                // ),
 
                 // Fraud Statistics
                 if (fraudProvider.totalAnalyzed > 0)
@@ -625,65 +625,65 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildSecuritySummary(DeviceSecurityInfo info) {
-    final isSecure = info.securityScore >= 0.7;
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isSecure ? const Color(0xFFE8F5E9) : const Color(0xFFFFEBEE),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Icon(
-                isSecure ? Icons.verified_user : Icons.warning,
-                color: isSecure ? const Color(0xFF4CAF50) : const Color(0xFFF44336),
-                size: 32,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      isSecure ? 'Perangkat Aman' : 'Perangkat Berisiko',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                        color: isSecure
-                            ? const Color(0xFF4CAF50)
-                            : const Color(0xFFF44336),
-                      ),
-                    ),
-                    Text(
-                      'Security Score: ${(info.securityScore * 100).toInt()}%',
-                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-                    ),
-                  ],
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.refresh),
-                onPressed: _loadDeviceSecurityInfo,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildSecurityItem('Mock GPS', !info.isMockLocationEnabled),
-              _buildSecurityItem('Root', !info.isDeviceRooted),
-              _buildSecurityItem('Emulator', !info.isEmulator),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
+  // Widget _buildSecuritySummary(DeviceSecurityInfo info) {
+  //   final isSecure = info.securityScore >= 0.7;
+  //
+  //   return Container(
+  //     padding: const EdgeInsets.all(16),
+  //     decoration: BoxDecoration(
+  //       color: isSecure ? const Color(0xFFE8F5E9) : const Color(0xFFFFEBEE),
+  //       borderRadius: BorderRadius.circular(12),
+  //     ),
+  //     child: Column(
+  //       children: [
+  //         Row(
+  //           children: [
+  //             Icon(
+  //               isSecure ? Icons.verified_user : Icons.warning,
+  //               color: isSecure ? const Color(0xFF4CAF50) : const Color(0xFFF44336),
+  //               size: 32,
+  //             ),
+  //             const SizedBox(width: 12),
+  //             Expanded(
+  //               child: Column(
+  //                 crossAxisAlignment: CrossAxisAlignment.start,
+  //                 children: [
+  //                   Text(
+  //                     isSecure ? 'Perangkat Aman' : 'Perangkat Berisiko',
+  //                     style: TextStyle(
+  //                       fontWeight: FontWeight.bold,
+  //                       fontSize: 16,
+  //                       color: isSecure
+  //                           ? const Color(0xFF4CAF50)
+  //                           : const Color(0xFFF44336),
+  //                     ),
+  //                   ),
+  //                   Text(
+  //                     'Security Score: ${(info.securityScore * 100).toInt()}%',
+  //                     style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+  //                   ),
+  //                 ],
+  //               ),
+  //             ),
+  //             IconButton(
+  //               icon: const Icon(Icons.refresh),
+  //               onPressed: _loadDeviceSecurityInfo,
+  //             ),
+  //           ],
+  //         ),
+  //         const SizedBox(height: 12),
+  //         Row(
+  //           mainAxisAlignment: MainAxisAlignment.spaceAround,
+  //           children: [
+  //             _buildSecurityItem('Mock GPS', !info.isMockLocationEnabled),
+  //             _buildSecurityItem('Root', !info.isDeviceRooted),
+  //             _buildSecurityItem('Emulator', !info.isEmulator),
+  //           ],
+  //         ),
+  //       ],
+  //     ),
+  //   );
+  // }
 
   Widget _buildSecurityItem(String label, bool isOk) {
     return Column(
