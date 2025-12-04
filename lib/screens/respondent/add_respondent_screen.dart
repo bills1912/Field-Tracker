@@ -635,18 +635,22 @@ class _AddRespondentScreenState extends State<AddRespondentScreen> {
       await ApiService.instance.createRespondent(respondentData);
 
       if (mounted) {
+        final bool isOnline = await ApiService.instance.hasConnectivity();
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
               children: [
-                const Icon(Icons.check_circle, color: Colors.white),
+                Icon(isOnline ? Icons.check_circle : Icons.cloud_queue, color: Colors.white),
                 const SizedBox(width: 12),
-                Text(_bypassFraudWarning
-                    ? 'Respondent added (with warning bypass)'
-                    : 'Respondent added successfully!'),
+                Text(isOnline
+                    ? 'Responden berhasil disimpan!'
+                    : 'Disimpan Offline. Akan disinkronisasi otomatis.'),
               ],
             ),
-            backgroundColor: _bypassFraudWarning ? Colors.orange : Colors.green,
+            backgroundColor: isOnline
+                ? (_bypassFraudWarning ? Colors.orange : Colors.green)
+                : Colors.blueGrey, // Warna beda untuk offline
           ),
         );
         Navigator.pop(context, true);

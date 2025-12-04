@@ -86,6 +86,9 @@ dependencies:
   #ENV
   flutter_dotenv: ^6.0.0
 
+  # Offline Feature
+  cached_network_image: ^3.3.0 # Opsional, tapi berguna
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

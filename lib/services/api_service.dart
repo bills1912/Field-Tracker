@@ -444,6 +444,13 @@ class ApiService {
   Future<Respondent> createRespondent(Map<String, dynamic> data) async {
     debugPrint('📤 Creating respondent...');
 
+    if (data['latitude'] == null && data['location'] != null) {
+      if (data['location'] is Map) {
+        data['latitude'] = data['location']['latitude'];
+        data['longitude'] = data['location']['longitude'];
+      }
+    }
+
     // Validate required fields
     if (data['name'] == null || (data['name'] as String).trim().isEmpty) {
       throw Exception('Name is required');
@@ -455,6 +462,15 @@ class ApiService {
       throw Exception('Survey ID is required');
     }
 
+    // Parsing aman untuk koordinat (handle String atau Number)
+    final double lat = (data['latitude'] is String)
+        ? double.parse(data['latitude'])
+        : (data['latitude'] as num).toDouble();
+
+    final double lng = (data['longitude'] is String)
+        ? double.parse(data['longitude'])
+        : (data['longitude'] as num).toDouble();
+
     // Create a temporary respondent object
     final tempId = 'temp_${DateTime.now().millisecondsSinceEpoch}';
     final respondent = Respondent(
@@ -462,8 +478,8 @@ class ApiService {
       name: data['name'],
       phone: data['phone'],
       address: data['address'],
-      latitude: data['latitude'],
-      longitude: data['longitude'],
+      latitude: lat,
+      longitude: lng,
       status: RespondentStatus.pending,
       surveyId: data['survey_id'],
       enumeratorId: data['enumerator_id'],
@@ -474,6 +490,18 @@ class ApiService {
 
     try {
       final headers = await _getHeaders();
+
+      if (data['location'] == null) {
+        data['location'] = {
+          'latitude': lat,
+          'longitude': lng,
+        };
+      }
+
+      if (data['phone'] == null || data['phone'].toString().isEmpty) data['phone'] = "-";
+      if (data['address'] == null || data['address'].toString().isEmpty) data['address'] = "-";
+      if (data['region_code'] == null || data['region_code'].toString().isEmpty) data['region_code'] = "UNKNOWN";
+
       final response = await http.post(
         Uri.parse('$baseUrl/respondents'),
         headers: headers,

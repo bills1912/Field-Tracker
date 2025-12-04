@@ -18,6 +18,9 @@ import '../../models/respondent.dart';
 import '../respondent/add_respondent_screen.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../../providers/offline_tile_provider.dart'; // Sesuaikan path tempat Anda menyimpan file yang diupload tadi
+import '../../services/offline_map_service.dart';
+import '../../services/storage_service.dart';
 
 enum BaseMapType {
   openStreetMap,
@@ -217,6 +220,87 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
       }
     }
   }
+
+  // --- MULAI COPY DARI SINI ---
+
+  /// Fungsi ini adalah "Jembatan" antara UI dengan Logic Download
+  Future<void> _downloadCurrentArea() async {
+    // 1. Cek apakah peta sudah siap
+    if (_mapController.center.latitude == 0 && _mapController.center.longitude == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Tunggu peta dimuat sepenuhnya')),
+      );
+      return;
+    }
+
+    // 2. Tampilkan Dialog Progress
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          String status = "Menyiapkan download...";
+          double progress = 0.0;
+
+          // 3. PANGGIL MESINNYA DI SINI (OfflineMapHelper.downloadAreaForOffline)
+          OfflineMapHelper.downloadAreaForOffline(
+            centerLat: _mapController.center.latitude,
+            centerLon: _mapController.center.longitude,
+            radiusKm: 2.0, // Radius 2 KM dari tengah layar
+            minZoom: 12,   // Zoom level kecamatan
+            maxZoom: 18,   // Zoom level detail jalan
+            urlTemplate: _getTileUrl(),
+            providerName: _currentBaseMap.name,
+            onProgress: (downloaded, total) {
+              // Update tampilan loading
+              setDialogState(() {
+                if (total > 0) progress = downloaded / total;
+                status = "Mendownload tile $downloaded / $total";
+              });
+            },
+          ).then((_) {
+            // Jika Selesai: Tutup dialog & Beri info sukses
+            Navigator.of(ctx, rootNavigator: true).pop();
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('✅ Area berhasil disimpan offline!'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            }
+          }).catchError((error) {
+            // Jika Error: Tutup dialog & Beri info error
+            Navigator.of(ctx, rootNavigator: true).pop();
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Gagal: $error'), backgroundColor: Colors.red),
+              );
+            }
+          });
+
+          // Tampilan Dialog
+          return AlertDialog(
+            title: const Text('Download Peta Offline'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(status, textAlign: TextAlign.center),
+                const SizedBox(height: 10),
+                LinearProgressIndicator(value: progress),
+                const SizedBox(height: 10),
+                const Text(
+                    'Mohon tunggu, butuh koneksi internet.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey)
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+  // --- SELESAI COPY ---
 
   String _filterGeoJsonStringByList(String geoJsonString, String fieldName, List<String> allowedRegions) {
     try {
@@ -582,12 +666,33 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
       final respondents = await ApiService.instance.getRespondents(
         surveyId: widget.survey.id,
       );
+      final allPending = await StorageService.instance.getPendingRespondents();
+      final thisSurveyPending = allPending.where((r) => r.surveyId == widget.survey.id).toList();
+
+      // 3. Gabungkan Data (Hindari duplikat jika ID pending bertabrakan)
+      final Map<String, Respondent> uniqueMap = {};
+
+      // Masukkan server dulu
+      for (var r in respondents) uniqueMap[r.id] = r;
+
+      // Timpa/Tambah dengan pending (Pending lebih prioritas untuk ditampilkan status terbarunya)
+      for (var r in thisSurveyPending) uniqueMap[r.id] = r;
 
       setState(() {
         _masterRespondentsList = respondents;
         _allRespondents = respondents;
         _applyFilter();
       });
+
+      if (thisSurveyPending.isNotEmpty && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Menampilkan ${thisSurveyPending.length} data yang belum disinkronisasi'),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1382,6 +1487,9 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
                     _loadMapData();
                   }
                   break;
+                case 'download_offline':
+                  _downloadCurrentArea();
+                  break;
                 case 'legend':
                   _showLegend();
                   break;
@@ -1482,6 +1590,16 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
                     ),
                     SizedBox(width: 12),
                     Text('Legend'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem<String>(
+                value: 'download_offline',
+                child: Row(
+                  children: [
+                    Icon(Icons.download_for_offline, color: Colors.orange),
+                    SizedBox(width: 12),
+                    Text('Download Area (Offline)'),
                   ],
                 ),
               ),
@@ -1833,10 +1951,10 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
             minZoom: 5,
           ),
           children: [
-            TileLayer(
+            OfflineMapHelper.createOfflineTileLayer(
               urlTemplate: _getTileUrl(),
+              providerName: _currentBaseMap.name, // 'openStreetMap' dll
               userAgentPackageName: 'com.fieldtracker.app',
-              maxZoom: 20,
             ),
             // GeoJSON Polygon Layer
             if (_showGeoJson && _geoJsonParser != null && !_isLoadingGeoJson)
