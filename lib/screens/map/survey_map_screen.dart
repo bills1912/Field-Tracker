@@ -1,7 +1,6 @@
 // lib/screens/map/survey_map_screen.dart
 import 'dart:async';
 import 'dart:math';
-import 'package:field_tracker/models/user.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -18,8 +17,7 @@ import '../../models/respondent.dart';
 import '../respondent/add_respondent_screen.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import '../../providers/offline_tile_provider.dart'; // Sesuaikan path tempat Anda menyimpan file yang diupload tadi
-import '../../services/offline_map_service.dart';
+import '../../providers/offline_tile_provider.dart';
 import '../../services/storage_service.dart';
 
 enum BaseMapType {
@@ -54,7 +52,6 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
   RespondentStatus? _currentFilter;
   bool _isFabOpen = false;
   final Map<String, String> _regionPcodes = {};
-  // String? _selectedRegionPcode;
   List<Respondent> _masterRespondentsList = []; // Menyimpan semua data dari API
   String? _cachedGeoJsonString; // Menyimpan text file GeoJSON
   List<String> _myAllocatedRegions = [];
@@ -73,6 +70,21 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
   List<String> _availableRegions = [];
   String? _selectedRegion;
   bool _isRegionSelectorOpen = false;
+
+  bool _isAddMode = false; // Mode tambah responden
+  LatLng? _newRespondentLocation; // Lokasi titik baru
+
+  // Form Controllers
+  final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _addressController = TextEditingController();
+  final _regionCodeController = TextEditingController();
+  bool _isRegionCodeEditable = false;
+  bool _isSubmitting = false;
+
+  // Logic Polygons untuk deteksi wilayah otomatis (Point in Polygon)
+  List<Map<String, dynamic>> _logicPolygons = [];
 
   // Tile URLs
   static const String _googleSatelliteUrl =
@@ -196,6 +208,52 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
         }
       }
 
+      final json = jsonDecode(geoJsonString);
+      final List<Map<String, dynamic>> logicPolys = [];
+
+      if (json['features'] != null) {
+        for (var feature in json['features']) {
+          final geometry = feature['geometry'];
+          final props = feature['properties'];
+
+          if (geometry == null || props == null) continue;
+
+          // Ambil field Code (PCODE) untuk disimpan di controller nanti
+          // Gunakan field custom dari survey config, atau default 'ADM3_PCODE'
+          final String pcode = props[widget.survey.geojsonUniqueCodeField ?? 'ADM3_PCODE']?.toString()
+              ?? props['region_code']?.toString()
+              ?? '';
+
+          if (pcode.isEmpty) continue;
+
+          // Helper lokal untuk konversi koordinat JSON [long, lat] ke LatLng
+          void extractCoords(List rawCoords) {
+            final points = rawCoords.map<LatLng>((coord) {
+              // GeoJSON formatnya [Longitude, Latitude]
+              // LatLng formatnya (Latitude, Longitude)
+              return LatLng(coord[1].toDouble(), coord[0].toDouble());
+            }).toList();
+
+            // Simpan ke list logika
+            logicPolys.add({
+              'code': pcode,
+              'points': points
+            });
+          }
+
+          // Handle tipe geometri
+          if (geometry['type'] == 'Polygon') {
+            // Polygon biasa: coordinates[0] adalah outer ring
+            extractCoords(geometry['coordinates'][0]);
+          } else if (geometry['type'] == 'MultiPolygon') {
+            // MultiPolygon: array of polygons
+            for (var poly in geometry['coordinates']) {
+              extractCoords(poly[0]);
+            }
+          }
+        }
+      }
+
       // Extract available regions from GeoJSON
       if (widget.survey.geojsonFilterField != null) {
         _extractRegionsFromGeoJson(geoJsonString);
@@ -205,7 +263,13 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
       debugPrint('   Polygons: ${_geoJsonParser!.polygons.length}');
       debugPrint('   Available regions: ${_availableRegions.length}');
 
-      setState(() => _isLoadingGeoJson = false);
+      if (mounted) {
+        setState(() {
+          _logicPolygons = logicPolys; // Simpan hasil parsing logika ke variabel state
+          _isLoadingGeoJson = false;
+        });
+      }
+
     } catch (e) {
       debugPrint('❌ Error loading GeoJSON: $e');
       setState(() => _isLoadingGeoJson = false);
@@ -219,6 +283,332 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
         );
       }
     }
+  }
+
+  void _detectRegionFromLocation(LatLng point) {
+    if (_logicPolygons.isEmpty) return;
+    if (_isRegionCodeEditable && _regionCodeController.text.isNotEmpty) return;
+
+    String foundCode = '';
+    for (var poly in _logicPolygons) {
+      if (_isPointInPolygon(point, poly['points'])) {
+        foundCode = poly['code'];
+        break;
+      }
+    }
+
+    if (foundCode.isNotEmpty) {
+      setState(() => _regionCodeController.text = foundCode);
+    }
+  }
+
+  bool _isPointInPolygon(LatLng point, List<LatLng> polygon) {
+    int intersectCount = 0;
+    for (int j = 0; j < polygon.length - 1; j++) {
+      if (_rayCastIntersect(point, polygon[j], polygon[j + 1])) {
+        intersectCount++;
+      }
+    }
+    return (intersectCount % 2) == 1;
+  }
+
+  bool _rayCastIntersect(LatLng point, LatLng vertA, LatLng vertB) {
+    final double aY = vertA.latitude;
+    final double bY = vertB.latitude;
+    final double aX = vertA.longitude;
+    final double bX = vertB.longitude;
+    final double pY = point.latitude;
+    final double pX = point.longitude;
+
+    if ((aY > pY && bY > pY) || (aY < pY && bY < pY) || (aX < pX && bX < pX)) {
+      return false;
+    }
+    final double m = (aY - bY) / (aX - bX);
+    final double bee = (-aX) * m + aY;
+    final double x = (pY - bee) / m;
+    return x > pX;
+  }
+
+  Future<void> _submitNewRespondent() async {
+    if (!_formKey.currentState!.validate()) return;
+    if (_newRespondentLocation == null) return;
+
+    setState(() => _isSubmitting = true);
+
+    // Tutup BottomSheet dulu agar UX lebih smooth
+    Navigator.pop(context);
+
+    try {
+      final authProvider = context.read<AuthProvider>();
+
+      final respondentData = {
+        'name': _nameController.text.trim(),
+        'phone': _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
+        'address': _addressController.text.trim().isEmpty ? null : _addressController.text.trim(),
+        'latitude': _newRespondentLocation!.latitude,
+        'longitude': _newRespondentLocation!.longitude,
+        'location': {
+          'latitude': _newRespondentLocation!.latitude,
+          'longitude': _newRespondentLocation!.longitude,
+        },
+        'status': 'pending',
+        'survey_id': widget.survey.id,
+        'enumerator_id': authProvider.user?.id,
+        'region_code': _regionCodeController.text.trim().isEmpty ? null : _regionCodeController.text.trim(),
+      };
+
+      // Panggil API Service (sudah pakai logic offline-fallback yang kita perbaiki sebelumnya)
+      await ApiService.instance.createRespondent(respondentData);
+
+      // Reset Form & Mode
+      _nameController.clear();
+      _phoneController.clear();
+      _addressController.clear();
+      _regionCodeController.clear();
+      setState(() {
+        _isAddMode = false;
+        _newRespondentLocation = null;
+      });
+
+      // Refresh Data Peta
+      _loadMapData();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Responden berhasil ditambahkan!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        // Tampilkan error (termasuk "Disimpan Offline" dari ApiService)
+        bool isOffline = e.toString().contains("Offline");
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(isOffline
+                ? 'Disimpan Offline. Akan disinkronisasi otomatis.'
+                : 'Error: $e'),
+            backgroundColor: isOffline ? Colors.orange : Colors.red,
+          ),
+        );
+        // Jika offline, anggap sukses secara UI
+        if(isOffline) {
+          _loadMapData();
+          setState(() { _isAddMode = false; _newRespondentLocation = null; });
+        }
+      }
+    } finally {
+      setState(() => _isSubmitting = false);
+    }
+  }
+
+  void _showAddFormBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent, // Transparan agar rounded corner terlihat rapi
+      builder: (ctx) {
+        // Gunakan StatefulBuilder agar UI di dalam BottomSheet bisa berubah (Lock/Unlock)
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setSheetState) {
+            // Hitung padding bawah aman (Keyboard + Navigasi Bar HP)
+            final bottomPadding = MediaQuery.of(context).viewInsets.bottom +
+                MediaQuery.of(context).padding.bottom +
+                20;
+
+            return Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 20,
+                bottom: bottomPadding, // Padding dinamis agar tombol tidak ketutup
+              ),
+              child: SingleChildScrollView(
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Header
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Tambah Responden Baru',
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () => Navigator.pop(ctx),
+                          )
+                        ],
+                      ),
+                      const Divider(),
+                      const SizedBox(height: 10),
+
+                      // Read-only Location Box
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.blue[50],
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.location_on, color: Colors.blue),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Lokasi: ${_newRespondentLocation!.latitude.toStringAsFixed(6)}, ${_newRespondentLocation!.longitude.toStringAsFixed(6)}',
+                                style: const TextStyle(fontWeight: FontWeight.w500),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Nama Field
+                      TextFormField(
+                        controller: _nameController,
+                        decoration: const InputDecoration(
+                          labelText: 'Nama Responden *',
+                          prefixIcon: Icon(Icons.person),
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: (v) => v!.trim().isEmpty ? 'Wajib diisi' : null,
+                      ),
+                      const SizedBox(height: 16),
+
+                      // --- FIX: KODE WILAYAH DENGAN TOGGLE ESTETIK ---
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: _regionCodeController,
+                              readOnly: !_isRegionCodeEditable,
+                              style: TextStyle(
+                                color: !_isRegionCodeEditable ? Colors.grey[700] : Colors.black,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              decoration: InputDecoration(
+                                labelText: 'Kode Wilayah (Auto)',
+                                hintText: 'Deteksi otomatis...',
+                                prefixIcon: const Icon(Icons.map),
+                                filled: !_isRegionCodeEditable,
+                                fillColor: Colors.grey[100],
+                                border: const OutlineInputBorder(),
+                                contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 12),
+                              ),
+                              validator: (value) => value?.isEmpty ?? true
+                                  ? 'Wilayah kosong. Geser peta ke area yang valid.'
+                                  : null,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+
+                          // Tombol Toggle Estetik (Merah/Hijau)
+                          InkWell(
+                            onTap: () {
+                              // Update state lokal (BottomSheet) DAN state parent
+                              setSheetState(() {
+                                _isRegionCodeEditable = !_isRegionCodeEditable;
+                              });
+                              // Update state global (SurveyMapScreen) agar sync
+                              setState(() {
+                                _isRegionCodeEditable = _isRegionCodeEditable;
+                              });
+                            },
+                            borderRadius: BorderRadius.circular(4),
+                            child: Container(
+                              width: 58, // Lebar disesuaikan dengan tinggi textfield default
+                              height: 58,
+                              decoration: BoxDecoration(
+                                color: _isRegionCodeEditable
+                                    ? Colors.red.withOpacity(0.1)
+                                    : Colors.green.withOpacity(0.1),
+                                border: Border.all(
+                                  color: _isRegionCodeEditable ? Colors.red : Colors.green,
+                                  width: 1.5,
+                                ),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Icon(
+                                _isRegionCodeEditable ? Icons.lock_open : Icons.lock,
+                                color: _isRegionCodeEditable ? Colors.red : Colors.green,
+                                size: 28,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Phone Field
+                      TextFormField(
+                        controller: _phoneController,
+                        decoration: const InputDecoration(
+                            labelText: 'No. HP',
+                            prefixIcon: Icon(Icons.phone),
+                            border: OutlineInputBorder()
+                        ),
+                        keyboardType: TextInputType.phone,
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Address Field
+                      TextFormField(
+                        controller: _addressController,
+                        decoration: const InputDecoration(
+                            labelText: 'Alamat',
+                            prefixIcon: Icon(Icons.home),
+                            border: OutlineInputBorder()
+                        ),
+                        maxLines: 2,
+                      ),
+                      const SizedBox(height: 24),
+
+                      // --- FIX: TOMBOL SIMPAN ---
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton.icon(
+                          icon: _isSubmitting
+                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                              : const Icon(Icons.save),
+                          label: Text(_isSubmitting ? 'MENYIMPAN...' : 'SIMPAN'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF4CAF50),
+                            elevation: 2,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          onPressed: _isSubmitting ? null : _submitNewRespondent,
+                        ),
+                      ),
+                      // Jarak tambahan sedikit di bawah tombol agar tidak terlalu mepet padding
+                      const SizedBox(height: 10),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    ).whenComplete(() {
+      // Optional: Reset form state on close if needed
+    });
   }
 
   // --- MULAI COPY DARI SINI ---
@@ -1593,6 +1983,7 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
                   ],
                 ),
               ),
+              const PopupMenuDivider(),
               const PopupMenuItem<String>(
                 value: 'download_offline',
                 child: Row(
@@ -1603,29 +1994,6 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
                   ],
                 ),
               ),
-              if (user?.role == UserRole.enumerator) ...[
-                const PopupMenuDivider(),
-                const PopupMenuItem<String>(
-                  value: 'add',
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.add_circle,
-                        color: Color(0xFF4CAF50),
-                        size: 20,
-                      ),
-                      SizedBox(width: 12),
-                      Text(
-                        'Tambah Responden',
-                        style: TextStyle(
-                          color: Color(0xFF4CAF50),
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
             ],
           ),
         ],
@@ -1688,6 +2056,24 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
         children: [
           if (_isFabOpen) ...[
             // GeoJSON Region Selector - Only show if GeoJSON is available
+            _buildMiniFab(
+              heroTag: 'add_mode_toggle',
+              backgroundColor: _isAddMode ? Colors.purple : Colors.white,
+              onPressed: () {
+                setState(() {
+                  _isAddMode = !_isAddMode;
+                  _newRespondentLocation = null; // Reset titik saat toggle
+                  if (_isAddMode) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Mode Tambah Aktif. Ketuk lokasi di peta.')),
+                    );
+                  }
+                });
+              },
+              icon: _isAddMode ? Icons.close : Icons.person_add,
+              iconColor: _isAddMode ? Colors.white : Colors.purple,
+            ),
+            const SizedBox(height: 8),
             if (widget.survey.geojsonPath != null && _availableRegions.isNotEmpty)
               _buildMiniFab(
                 heroTag: 'region_selector',
@@ -1776,14 +2162,6 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
               backgroundColor: Colors.white,
               onPressed: _centerMapOnContent,
               icon: Icons.fit_screen,
-              iconColor: Color(0xFF2196F3),
-            ),
-            const SizedBox(height: 8),
-            _buildMiniFab(
-              heroTag: 'legend',
-              backgroundColor: Colors.white,
-              onPressed: _showLegend,
-              icon: Icons.info_outline,
               iconColor: Color(0xFF2196F3),
             ),
             const SizedBox(height: 12),
@@ -1949,6 +2327,17 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
             zoom: 13,
             maxZoom: 18,
             minZoom: 5,
+            onTap: (tapPosition, point) {
+              if (_isAddMode) {
+                setState(() {
+                  _newRespondentLocation = point;
+                });
+                _detectRegionFromLocation(point);
+                _showAddFormBottomSheet(); // Langsung munculkan form
+              } else {
+                // Logic tap biasa (jika ada, misal hide info window)
+              }
+            },
           ),
           children: [
             OfflineMapHelper.createOfflineTileLayer(
@@ -2044,6 +2433,17 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
                 }),
               ],
             ),
+            if (_isAddMode && _newRespondentLocation != null)
+              MarkerLayer(
+                markers: [
+                  Marker(
+                    point: _newRespondentLocation!,
+                    width: 50,
+                    height: 50,
+                    child: const Icon(Icons.location_pin, color: Colors.purple, size: 50),
+                  ),
+                ],
+              ),
           ],
         ),
         // Info bar at top
@@ -2122,6 +2522,32 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
               ),
             ),
           ),
+        if (_isAddMode)
+          Positioned(
+            top: 16,
+            left: 16,
+            right: 16,
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.purple,
+                borderRadius: BorderRadius.circular(8),
+                boxShadow: const [BoxShadow(blurRadius: 4, color: Colors.black26)],
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.add_location_alt, color: Colors.white),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Mode Tambah: Ketuk peta untuk menambah responden di lokasi tersebut.',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -2149,9 +2575,15 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
         ),
       );
     }
+    final bottomSafePadding = MediaQuery.of(context).padding.bottom + 50;
 
     return ListView.builder(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 16,
+        bottom: bottomSafePadding,
+      ),
       itemCount: _filteredRespondents.length,
       itemBuilder: (context, index) {
         final respondent = _filteredRespondents[index];

@@ -451,6 +451,10 @@ class ApiService {
       }
     }
 
+    if (data['phone'] == null || data['phone'].toString().isEmpty) data['phone'] = "-";
+    if (data['address'] == null || data['address'].toString().isEmpty) data['address'] = "-";
+    if (data['region_code'] == null || data['region_code'].toString().isEmpty) data['region_code'] = "UNKNOWN";
+
     // Validate required fields
     if (data['name'] == null || (data['name'] as String).trim().isEmpty) {
       throw Exception('Name is required');
@@ -497,10 +501,6 @@ class ApiService {
           'longitude': lng,
         };
       }
-
-      if (data['phone'] == null || data['phone'].toString().isEmpty) data['phone'] = "-";
-      if (data['address'] == null || data['address'].toString().isEmpty) data['address'] = "-";
-      if (data['region_code'] == null || data['region_code'].toString().isEmpty) data['region_code'] = "UNKNOWN";
 
       final response = await http.post(
         Uri.parse('$baseUrl/respondents'),
