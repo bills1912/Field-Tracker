@@ -23,6 +23,9 @@ class FraudDetectionProvider with ChangeNotifier {
   int _totalFlagged = 0;
   double _averageTrustScore = 1.0;
 
+  // 🆕 Cached device security info untuk quick access
+  DeviceSecurityInfo? _cachedSecurityInfo;
+
   // Getters
   bool get isMonitoring => _isMonitoring;
   bool get isAnalyzing => _isAnalyzing;
@@ -33,6 +36,7 @@ class FraudDetectionProvider with ChangeNotifier {
   int get totalFlagged => _totalFlagged;
   double get averageTrustScore => _averageTrustScore;
   double get fraudRate => _totalAnalyzed > 0 ? _totalFlagged / _totalAnalyzed : 0.0;
+  DeviceSecurityInfo? get cachedSecurityInfo => _cachedSecurityInfo;
 
   /// Start monitoring (sensor collection)
   /// 🆕 Dipanggil otomatis saat login
@@ -48,6 +52,9 @@ class FraudDetectionProvider with ChangeNotifier {
 
       await _sensorService.startCollecting();
       _isMonitoring = true;
+
+      // 🆕 Refresh device security info saat start
+      await _refreshDeviceSecurityInfo();
 
       debugPrint('✅ Fraud detection monitoring started');
       notifyListeners();
@@ -78,6 +85,19 @@ class FraudDetectionProvider with ChangeNotifier {
     }
   }
 
+  /// 🆕 Refresh device security info
+  Future<void> _refreshDeviceSecurityInfo() async {
+    try {
+      _cachedSecurityInfo = await _sensorService.refreshDeviceSecurityInfo();
+      debugPrint('✅ Device security info refreshed');
+      debugPrint('   - Emulator: ${_cachedSecurityInfo?.isEmulator}');
+      debugPrint('   - Mock Location: ${_cachedSecurityInfo?.isMockLocationEnabled}');
+      debugPrint('   - Rooted: ${_cachedSecurityInfo?.isDeviceRooted}');
+    } catch (e) {
+      debugPrint('⚠️ Failed to refresh device security info: $e');
+    }
+  }
+
   /// Analyze a location for fraud
   Future<LocationFraudResult> analyzeLocation(
       EnhancedLocationTracking location,
@@ -92,6 +112,9 @@ class FraudDetectionProvider with ChangeNotifier {
       if (_isMonitoring) {
         final sensorData = _sensorService.getCurrentSensorData();
         final securityInfo = await _sensorService.getDeviceSecurityInfo();
+
+        // 🆕 Update cached security info
+        _cachedSecurityInfo = securityInfo;
 
         enrichedLocation = location.copyWith(
           sensorData: sensorData,
@@ -121,6 +144,11 @@ class FraudDetectionProvider with ChangeNotifier {
       _isAnalyzing = false;
       notifyListeners();
 
+      debugPrint('📊 Fraud analysis completed:');
+      debugPrint('   Trust Score: ${result.trustScore}');
+      debugPrint('   Is Fraudulent: ${result.isFraudulent}');
+      debugPrint('   Flags: ${result.flags.length}');
+
       return result;
     } catch (e) {
       _error = 'Analysis failed: $e';
@@ -147,6 +175,9 @@ class FraudDetectionProvider with ChangeNotifier {
 
     // Check device security
     final securityInfo = await _sensorService.getDeviceSecurityInfo();
+
+    // 🆕 Update cached security info
+    _cachedSecurityInfo = securityInfo;
 
     if (securityInfo.isMockLocationEnabled) {
       return QuickFraudCheck(
@@ -181,7 +212,10 @@ class FraudDetectionProvider with ChangeNotifier {
 
   /// Get device security status
   Future<DeviceSecurityInfo> getDeviceSecurityStatus() async {
-    return await _sensorService.getDeviceSecurityInfo();
+    final securityInfo = await _sensorService.refreshDeviceSecurityInfo();
+    _cachedSecurityInfo = securityInfo;
+    notifyListeners();
+    return securityInfo;
   }
 
   /// Get fraud statistics for a user
@@ -244,6 +278,32 @@ class FraudDetectionProvider with ChangeNotifier {
     return sorted.take(5).toList();
   }
 
+  /// 🆕 Add result from external source (e.g., LocationProvider)
+  void addExternalResult(LocationFraudResult result) {
+    // Check if result already exists (by timestamp and location)
+    final exists = _recentResults.any((r) =>
+    r.timestamp == result.timestamp &&
+        r.latitude == result.latitude &&
+        r.longitude == result.longitude);
+
+    if (!exists) {
+      _lastResult = result;
+      _recentResults.insert(0, result);
+      if (_recentResults.length > 50) {
+        _recentResults.removeLast();
+      }
+
+      // Update statistics
+      _totalAnalyzed++;
+      if (result.isFraudulent) {
+        _totalFlagged++;
+      }
+      _updateAverageTrustScore(result.trustScore);
+
+      notifyListeners();
+    }
+  }
+
   /// Clear history
   void clearHistory() {
     _recentResults.clear();
@@ -263,7 +323,11 @@ class FraudDetectionProvider with ChangeNotifier {
 
   void _updateAverageTrustScore(double newScore) {
     // Rolling average
-    _averageTrustScore = ((_averageTrustScore * (_totalAnalyzed - 1)) + newScore) / _totalAnalyzed;
+    if (_totalAnalyzed <= 1) {
+      _averageTrustScore = newScore;
+    } else {
+      _averageTrustScore = ((_averageTrustScore * (_totalAnalyzed - 1)) + newScore) / _totalAnalyzed;
+    }
   }
 }
 

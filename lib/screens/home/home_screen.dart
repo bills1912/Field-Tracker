@@ -91,6 +91,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       fraudDetectionProvider: fraudProvider,
     );
 
+    // 🆕 Setup callback untuk sinkronisasi fraud results
+    _setupFraudResultCallback(locationProvider, fraudProvider);
+
     // 🆕 Sync device info
     try {
       await ApiService.instance.syncDeviceInfo();
@@ -106,6 +109,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _isStartingServices = false;
   }
 
+  /// 🆕 Setup callback untuk sinkronisasi fraud results antara providers
+  void _setupFraudResultCallback(
+      LocationProvider locationProvider,
+      FraudDetectionProvider fraudProvider,
+      ) {
+    locationProvider.setOnFraudResultCallback((fraudResult) {
+      // Sync fraud result ke FraudDetectionProvider
+      fraudProvider.addExternalResult(fraudResult);
+      debugPrint('🔗 Fraud result synced to FraudDetectionProvider');
+    });
+  }
+
   /// 🆕 NEW: Force start services - dipanggil saat init dan resume
   Future<void> _forceStartServices() async {
     if (!mounted) return;
@@ -119,6 +134,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     debugPrint("🔍 Force checking services status...");
     debugPrint("   - Location tracking: ${locationProvider.isTracking}");
     debugPrint("   - Fraud monitoring: ${fraudProvider.isMonitoring}");
+
+    // 🆕 Ensure callback is set
+    _setupFraudResultCallback(locationProvider, fraudProvider);
 
     // 🔒 FORCE START: Start fraud monitoring
     if (!fraudProvider.isMonitoring) {

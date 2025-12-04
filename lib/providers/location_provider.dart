@@ -21,6 +21,9 @@ class LocationProvider with ChangeNotifier {
   // 🔒 LOCKED: Fraud detection selalu enabled, tidak bisa dimatikan
   final bool _isFraudDetectionEnabled = true;
 
+  // 🆕 Callback untuk notify FraudDetectionProvider
+  Function(LocationFraudResult)? onFraudResultCallback;
+
   bool get isTracking => _isTracking;
   LocationData? get currentLocation => _currentLocation;
   List<LocationTracking> get locationHistory => _locationHistory;
@@ -32,6 +35,11 @@ class LocationProvider with ChangeNotifier {
   List<LocationFraudResult> get fraudHistory => _fraudHistory;
   bool get isFraudDetectionEnabled => _isFraudDetectionEnabled;
   bool get hasRecentFraud => _lastFraudResult?.isFraudulent ?? false;
+
+  /// 🆕 Set callback untuk notify external providers
+  void setOnFraudResultCallback(Function(LocationFraudResult)? callback) {
+    onFraudResultCallback = callback;
+  }
 
   /// Start tracking with fraud detection (RECOMMENDED - AUTO CALLED)
   Future<void> startTrackingWithFraudDetection(String userId) async {
@@ -58,6 +66,9 @@ class LocationProvider with ChangeNotifier {
           debugPrint('🚨 FRAUD DETECTED in LocationProvider');
           debugPrint('   Trust Score: ${fraudResult.trustScore}');
           debugPrint('   Flags: ${fraudResult.flags.length}');
+
+          // 🆕 Notify external callback (FraudDetectionProvider)
+          onFraudResultCallback?.call(fraudResult);
 
           notifyListeners();
         },
@@ -155,6 +166,17 @@ class LocationProvider with ChangeNotifier {
       if (fraudResult != null) {
         _lastFraudResult = fraudResult;
         _fraudHistory.insert(0, fraudResult);
+        if (_fraudHistory.length > 50) {
+          _fraudHistory.removeLast();
+        }
+
+        // 🆕 Notify external callback (FraudDetectionProvider)
+        onFraudResultCallback?.call(fraudResult);
+
+        debugPrint('📊 Fraud check completed:');
+        debugPrint('   Trust Score: ${fraudResult.trustScore}');
+        debugPrint('   Is Fraudulent: ${fraudResult.isFraudulent}');
+        debugPrint('   Flags: ${fraudResult.flags.length}');
       }
 
       notifyListeners();

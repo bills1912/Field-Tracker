@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../providers/fraud_detection_provider.dart';
+import '../../providers/location_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../models/location_fraud_result.dart';
 import '../../models/sensor_data.dart';
@@ -20,12 +21,18 @@ class _FraudDetectionScreenState extends State<FraudDetectionScreen>
   late TabController _tabController;
   bool _isLoadingSecurityInfo = false;
   DeviceSecurityInfo? _securityInfo;
+  bool _isRunningInitialCheck = false;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    _loadSecurityInfo();
+
+    // Load security info dan jalankan initial fraud check
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadSecurityInfo();
+      _runInitialFraudCheck();
+    });
   }
 
   @override
@@ -35,6 +42,7 @@ class _FraudDetectionScreenState extends State<FraudDetectionScreen>
   }
 
   Future<void> _loadSecurityInfo() async {
+    if (!mounted) return;
     setState(() => _isLoadingSecurityInfo = true);
     try {
       final provider = context.read<FraudDetectionProvider>();
@@ -42,8 +50,59 @@ class _FraudDetectionScreenState extends State<FraudDetectionScreen>
     } catch (e) {
       debugPrint('Error loading security info: $e');
     } finally {
-      setState(() => _isLoadingSecurityInfo = false);
+      if (mounted) {
+        setState(() => _isLoadingSecurityInfo = false);
+      }
     }
+  }
+
+  /// 🆕 Jalankan fraud check saat screen dibuka untuk memastikan data terupdate
+  Future<void> _runInitialFraudCheck() async {
+    if (!mounted || _isRunningInitialCheck) return;
+
+    setState(() => _isRunningInitialCheck = true);
+
+    try {
+      final authProvider = context.read<AuthProvider>();
+      final locationProvider = context.read<LocationProvider>();
+      final fraudProvider = context.read<FraudDetectionProvider>();
+
+      final user = authProvider.user;
+      if (user == null) {
+        debugPrint('⚠️ FraudDetectionScreen: No user logged in');
+        return;
+      }
+
+      // Pastikan monitoring aktif
+      if (!fraudProvider.isMonitoring) {
+        debugPrint('🚀 FraudDetectionScreen: Starting fraud monitoring...');
+        await fraudProvider.startMonitoring();
+      }
+
+      // Jalankan fraud check dengan lokasi saat ini
+      debugPrint('🔍 FraudDetectionScreen: Running initial fraud check...');
+      final (location, fraudResult) = await locationProvider.getCurrentLocationWithFraudCheck(user.id);
+
+      if (fraudResult != null) {
+        debugPrint('✅ Initial fraud check completed:');
+        debugPrint('   Trust Score: ${fraudResult.trustScore}');
+        debugPrint('   Is Fraudulent: ${fraudResult.isFraudulent}');
+        debugPrint('   Flags: ${fraudResult.flags.length}');
+      }
+
+    } catch (e) {
+      debugPrint('❌ Error running initial fraud check: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isRunningInitialCheck = false);
+      }
+    }
+  }
+
+  /// Refresh semua data
+  Future<void> _refreshAll() async {
+    await _loadSecurityInfo();
+    await _runInitialFraudCheck();
   }
 
   @override
@@ -52,10 +111,24 @@ class _FraudDetectionScreenState extends State<FraudDetectionScreen>
       appBar: AppBar(
         title: const Text('Fraud Detection'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadSecurityInfo,
-          ),
+          if (_isRunningInitialCheck || _isLoadingSecurityInfo)
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              ),
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: _refreshAll,
+              tooltip: 'Refresh & Check',
+            ),
         ],
         bottom: TabBar(
           controller: _tabController,
@@ -78,102 +151,140 @@ class _FraudDetectionScreenState extends State<FraudDetectionScreen>
   }
 
   Widget _buildOverviewTab() {
-    return Consumer<FraudDetectionProvider>(
-      builder: (context, provider, _) {
+    return Consumer2<FraudDetectionProvider, LocationProvider>(
+      builder: (context, fraudProvider, locationProvider, _) {
         final user = context.read<AuthProvider>().user;
         final stats = user != null
-            ? provider.getStatistics(user.id)
+            ? fraudProvider.getStatistics(user.id)
             : FraudStatistics.empty();
 
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Monitoring status card
-              _buildMonitoringStatusCard(provider),
-              const SizedBox(height: 16),
+        return RefreshIndicator(
+          onRefresh: _refreshAll,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 🆕 UPDATED: Status card tanpa toggle (read-only)
+                _buildProtectionStatusCard(fraudProvider, locationProvider),
+                const SizedBox(height: 16),
 
-              // Statistics cards
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildStatCard(
-                      'Total Cek',
-                      provider.totalAnalyzed.toString(),
-                      Icons.analytics,
-                      const Color(0xFF2196F3),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildStatCard(
-                      'Terdeteksi',
-                      provider.totalFlagged.toString(),
-                      Icons.warning,
-                      const Color(0xFFF44336),
-                    ),
-                  ),
+                // Statistics cards
+                // Row(
+                //   children: [
+                //     Expanded(
+                //       child: _buildStatCard(
+                //         'Total Cek',
+                //         fraudProvider.totalAnalyzed.toString(),
+                //         Icons.analytics,
+                //         const Color(0xFF2196F3),
+                //       ),
+                //     ),
+                //     const SizedBox(width: 12),
+                //     Expanded(
+                //       child: _buildStatCard(
+                //         'Terdeteksi',
+                //         fraudProvider.totalFlagged.toString(),
+                //         Icons.warning,
+                //         fraudProvider.totalFlagged > 0
+                //             ? const Color(0xFFF44336)
+                //             : const Color(0xFF4CAF50),
+                //       ),
+                //     ),
+                //   ],
+                // ),
+                // const SizedBox(height: 12),
+                // Row(
+                //   children: [
+                //     Expanded(
+                //       child: _buildStatCard(
+                //         'Trust Score',
+                //         '${(fraudProvider.averageTrustScore * 100).toInt()}%',
+                //         Icons.verified_user,
+                //         _getTrustScoreColor(fraudProvider.averageTrustScore),
+                //       ),
+                //     ),
+                //     const SizedBox(width: 12),
+                //     Expanded(
+                //       child: _buildStatCard(
+                //         'Fraud Rate',
+                //         '${(fraudProvider.fraudRate * 100).toStringAsFixed(1)}%',
+                //         Icons.pie_chart,
+                //         fraudProvider.fraudRate > 0.1
+                //             ? const Color(0xFFF44336)
+                //             : const Color(0xFF4CAF50),
+                //       ),
+                //     ),
+                //   ],
+                // ),
+                // const SizedBox(height: 24),
+
+                // 🆕 Device Security Quick Status
+                if (_securityInfo != null) ...[
+                  _buildDeviceSecurityQuickStatus(_securityInfo!),
+                  const SizedBox(height: 24),
                 ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildStatCard(
-                      'Trust Score',
-                      '${(provider.averageTrustScore * 100).toInt()}%',
-                      Icons.verified_user,
-                      const Color(0xFF4CAF50),
+
+                // Last analysis result
+                if (fraudProvider.lastResult != null) ...[
+                  const Text(
+                    'Analisis Terakhir',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildStatCard(
-                      'Fraud Rate',
-                      '${(provider.fraudRate * 100).toStringAsFixed(1)}%',
-                      Icons.pie_chart,
-                      const Color(0xFFFF9800),
+                  const SizedBox(height: 12),
+                  FraudAnalysisCard(result: fraudProvider.lastResult!),
+                  const SizedBox(height: 24),
+                ] else if (locationProvider.lastFraudResult != null) ...[
+                  // Fallback ke LocationProvider jika FraudProvider kosong
+                  const Text(
+                    'Analisis Terakhir',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
+                  const SizedBox(height: 12),
+                  FraudAnalysisCard(result: locationProvider.lastFraudResult!),
+                  const SizedBox(height: 24),
+                ] else ...[
+                  // No analysis yet - show prompt
+                  _buildNoAnalysisPrompt(),
+                  const SizedBox(height: 24),
                 ],
-              ),
-              const SizedBox(height: 24),
 
-              // Last analysis result
-              if (provider.lastResult != null) ...[
-                const Text(
-                  'Analisis Terakhir',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
+                // Most common fraud types
+                if (fraudProvider.recentResults.isNotEmpty) ...[
+                  const Text(
+                    'Jenis Fraud Terbanyak',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                FraudAnalysisCard(result: provider.lastResult!),
-                const SizedBox(height: 24),
+                  const SizedBox(height: 12),
+                  _buildFraudTypesList(fraudProvider),
+                ],
               ],
-
-              // Most common fraud types
-              if (provider.recentResults.isNotEmpty) ...[
-                const Text(
-                  'Jenis Fraud Terbanyak',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                _buildFraudTypesList(provider),
-              ],
-            ],
+            ),
           ),
         );
       },
     );
   }
 
-  Widget _buildMonitoringStatusCard(FraudDetectionProvider provider) {
+  /// 🆕 NEW: Protection status card tanpa toggle
+  Widget _buildProtectionStatusCard(
+      FraudDetectionProvider fraudProvider,
+      LocationProvider locationProvider,
+      ) {
+    final isMonitoring = fraudProvider.isMonitoring;
+    final isTracking = locationProvider.isTracking;
+    final isFullyProtected = isMonitoring && isTracking;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -181,34 +292,45 @@ class _FraudDetectionScreenState extends State<FraudDetectionScreen>
           children: [
             Row(
               children: [
+                // Status icon
                 Container(
-                  width: 12,
-                  height: 12,
+                  width: 48,
+                  height: 48,
                   decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: provider.isMonitoring
+                    color: isFullyProtected
+                        ? const Color(0xFFE8F5E9)
+                        : const Color(0xFFFFEBEE),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    isFullyProtected ? Icons.security : Icons.security_outlined,
+                    color: isFullyProtected
                         ? const Color(0xFF4CAF50)
-                        : Colors.grey,
+                        : const Color(0xFFF44336),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 16),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        provider.isMonitoring
-                            ? 'Monitoring Aktif'
-                            : 'Monitoring Tidak Aktif',
-                        style: const TextStyle(
+                        isFullyProtected
+                            ? 'Protection Aktif'
+                            : 'Protection Tidak Lengkap',
+                        style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 16,
+                          color: isFullyProtected
+                              ? const Color(0xFF4CAF50)
+                              : const Color(0xFFF44336),
                         ),
                       ),
+                      const SizedBox(height: 4),
                       Text(
-                        provider.isMonitoring
-                            ? 'Sensor data sedang dikumpulkan'
-                            : 'Aktifkan untuk mulai memantau',
+                        isFullyProtected
+                            ? 'Sensor & lokasi sedang dipantau'
+                            : 'Beberapa service tidak aktif',
                         style: TextStyle(
                           fontSize: 13,
                           color: Colors.grey[600],
@@ -217,20 +339,51 @@ class _FraudDetectionScreenState extends State<FraudDetectionScreen>
                     ],
                   ),
                 ),
-                Switch(
-                  value: provider.isMonitoring,
-                  onChanged: (value) async {
-                    if (value) {
-                      await provider.startMonitoring();
-                    } else {
-                      await provider.stopMonitoring();
-                    }
-                  },
-                  activeColor: const Color(0xFF4CAF50),
+                // 🔒 Status indicator (bukan toggle)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: isFullyProtected
+                        ? const Color(0xFF4CAF50)
+                        : const Color(0xFFF44336),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Text(
+                    isFullyProtected ? 'ON' : 'OFF',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
               ],
             ),
-            if (provider.error != null) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF5F5F5),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.lock, size: 18, color: Colors.grey[600]),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Monitoring otomatis aktif saat aplikasi dibuka. Tidak dapat dinonaktifkan.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Error display
+            if (fraudProvider.error != null) ...[
               const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.all(12),
@@ -244,7 +397,7 @@ class _FraudDetectionScreenState extends State<FraudDetectionScreen>
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        provider.error!,
+                        fraudProvider.error!,
                         style: const TextStyle(
                           color: Color(0xFFF44336),
                           fontSize: 13,
@@ -253,7 +406,7 @@ class _FraudDetectionScreenState extends State<FraudDetectionScreen>
                     ),
                     IconButton(
                       icon: const Icon(Icons.close, size: 18),
-                      onPressed: provider.clearError,
+                      onPressed: fraudProvider.clearError,
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(),
                     ),
@@ -261,10 +414,150 @@ class _FraudDetectionScreenState extends State<FraudDetectionScreen>
                 ),
               ),
             ],
+
+            // Fix button if not fully protected
+            if (!isFullyProtected) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _refreshAll,
+                  icon: const Icon(Icons.build, size: 18),
+                  label: const Text('Aktifkan Protection'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2196F3),
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
     );
+  }
+
+  /// 🆕 NEW: Device security quick status untuk overview
+  Widget _buildDeviceSecurityQuickStatus(DeviceSecurityInfo securityInfo) {
+    final hasIssues = securityInfo.isMockLocationEnabled ||
+        securityInfo.isDeviceRooted ||
+        securityInfo.isEmulator ||
+        (securityInfo.installedMockApps?.isNotEmpty ?? false);
+
+    return Card(
+      color: hasIssues ? const Color(0xFFFFEBEE) : const Color(0xFFE8F5E9),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  hasIssues ? Icons.warning : Icons.verified_user,
+                  color: hasIssues
+                      ? const Color(0xFFF44336)
+                      : const Color(0xFF4CAF50),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  hasIssues ? 'Perangkat Berisiko' : 'Perangkat Aman',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: hasIssues
+                        ? const Color(0xFFF44336)
+                        : const Color(0xFF4CAF50),
+                  ),
+                ),
+              ],
+            ),
+            if (hasIssues) ...[
+              const SizedBox(height: 12),
+              if (securityInfo.isEmulator)
+                _buildQuickIssueItem('Emulator terdeteksi'),
+              if (securityInfo.isMockLocationEnabled)
+                _buildQuickIssueItem('Mock location aktif'),
+              if (securityInfo.isDeviceRooted)
+                _buildQuickIssueItem('Device di-root'),
+              if (securityInfo.installedMockApps?.isNotEmpty ?? false)
+                _buildQuickIssueItem(
+                    'Fake GPS apps: ${securityInfo.installedMockApps!.length}'),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQuickIssueItem(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: [
+          const Icon(Icons.cancel, size: 14, color: Color(0xFFF44336)),
+          const SizedBox(width: 8),
+          Text(
+            text,
+            style: const TextStyle(fontSize: 13, color: Color(0xFFF44336)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 🆕 NEW: Prompt ketika belum ada analisis
+  Widget _buildNoAnalysisPrompt() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          children: [
+            Icon(Icons.search, size: 48, color: Colors.grey[300]),
+            const SizedBox(height: 16),
+            Text(
+              'Belum Ada Analisis',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[600],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Tekan tombol refresh untuk menjalankan analisis fraud detection pada lokasi saat ini.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.grey[500],
+              ),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: _isRunningInitialCheck ? null : _refreshAll,
+              icon: _isRunningInitialCheck
+                  ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+                  : const Icon(Icons.play_arrow),
+              label: Text(_isRunningInitialCheck ? 'Menganalisis...' : 'Jalankan Analisis'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Color _getTrustScoreColor(double score) {
+    if (score >= 0.8) return const Color(0xFF4CAF50);
+    if (score >= 0.6) return const Color(0xFFFF9800);
+    if (score >= 0.4) return const Color(0xFFF44336);
+    return const Color(0xFF9C27B0);
   }
 
   Widget _buildStatCard(
@@ -306,10 +599,16 @@ class _FraudDetectionScreenState extends State<FraudDetectionScreen>
     final commonTypes = provider.getMostCommonFraudTypes();
 
     if (commonTypes.isEmpty) {
-      return const Card(
+      return Card(
         child: Padding(
-          padding: EdgeInsets.all(16),
-          child: Text('Belum ada data fraud'),
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.green[400]),
+              const SizedBox(width: 12),
+              const Text('Tidak ada fraud terdeteksi'),
+            ],
+          ),
         ),
       );
     }
@@ -347,31 +646,72 @@ class _FraudDetectionScreenState extends State<FraudDetectionScreen>
   }
 
   Widget _buildHistoryTab() {
-    return Consumer<FraudDetectionProvider>(
-      builder: (context, provider, _) {
-        if (provider.recentResults.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.history, size: 64, color: Colors.grey[300]),
-                const SizedBox(height: 16),
-                Text(
-                  'Belum ada riwayat analisis',
-                  style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+    return Consumer2<FraudDetectionProvider, LocationProvider>(
+      builder: (context, fraudProvider, locationProvider, _) {
+        // 🆕 Gabungkan hasil dari kedua provider
+        final List<LocationFraudResult> allResults = [
+          ...fraudProvider.recentResults,
+          ...locationProvider.fraudHistory,
+        ];
+
+        // Deduplicate dan sort by timestamp
+        final Map<String, LocationFraudResult> uniqueResults = {};
+        for (var result in allResults) {
+          final key = '${result.timestamp.millisecondsSinceEpoch}_${result.latitude}_${result.longitude}';
+          if (!uniqueResults.containsKey(key)) {
+            uniqueResults[key] = result;
+          }
+        }
+
+        final sortedResults = uniqueResults.values.toList()
+          ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+
+        if (sortedResults.isEmpty) {
+          return RefreshIndicator(
+            onRefresh: _refreshAll,
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              child: SizedBox(
+                height: MediaQuery.of(context).size.height * 0.6,
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.history, size: 64, color: Colors.grey[300]),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Belum ada riwayat analisis',
+                        style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Tarik ke bawah untuk menjalankan analisis',
+                        style: TextStyle(fontSize: 13, color: Colors.grey[400]),
+                      ),
+                      const SizedBox(height: 24),
+                      ElevatedButton.icon(
+                        onPressed: _isRunningInitialCheck ? null : _refreshAll,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Jalankan Analisis'),
+                      ),
+                    ],
+                  ),
                 ),
-              ],
+              ),
             ),
           );
         }
 
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: provider.recentResults.length,
-          itemBuilder: (context, index) {
-            final result = provider.recentResults[index];
-            return _buildHistoryItem(result);
-          },
+        return RefreshIndicator(
+          onRefresh: _refreshAll,
+          child: ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: sortedResults.length,
+            itemBuilder: (context, index) {
+              final result = sortedResults[index];
+              return _buildHistoryItem(result);
+            },
+          ),
         );
       },
     );
@@ -484,9 +824,9 @@ class _FraudDetectionScreenState extends State<FraudDetectionScreen>
                 ),
               ),
               const SizedBox(height: 20),
-              Text(
+              const Text(
                 'Detail Analisis',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
                 ),
@@ -498,9 +838,9 @@ class _FraudDetectionScreenState extends State<FraudDetectionScreen>
               const SizedBox(height: 20),
               FraudAnalysisCard(result: result),
               const SizedBox(height: 20),
-              Text(
+              const Text(
                 'Lokasi',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
                 ),
@@ -557,42 +897,60 @@ class _FraudDetectionScreenState extends State<FraudDetectionScreen>
       );
     }
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          DeviceSecurityStatus(securityInfo: _securityInfo!),
-          const SizedBox(height: 24),
-          const Text(
-            'Tips Keamanan',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
+    return RefreshIndicator(
+      onRefresh: () async {
+        final provider = context.read<FraudDetectionProvider>();
+        _securityInfo = await provider.getDeviceSecurityStatus();
+        if (mounted) setState(() {});
+      },
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            DeviceSecurityStatus(
+              securityInfo: _securityInfo!,
+              onRefresh: () async {
+                setState(() => _isLoadingSecurityInfo = true);
+                final provider = context.read<FraudDetectionProvider>();
+                _securityInfo = await provider.getDeviceSecurityStatus();
+                if (mounted) {
+                  setState(() => _isLoadingSecurityInfo = false);
+                }
+              },
             ),
-          ),
-          const SizedBox(height: 12),
-          _buildSecurityTip(
-            Icons.gps_off,
-            'Matikan Mock Location',
-            'Pastikan fitur mock location dinonaktifkan di pengaturan developer',
-          ),
-          _buildSecurityTip(
-            Icons.security,
-            'Jangan Root Device',
-            'Device yang di-root lebih rentan terhadap manipulasi lokasi',
-          ),
-          _buildSecurityTip(
-            Icons.apps,
-            'Hapus Fake GPS Apps',
-            'Uninstall aplikasi fake GPS yang mungkin terinstal',
-          ),
-          _buildSecurityTip(
-            Icons.update,
-            'Update Aplikasi',
-            'Selalu gunakan versi terbaru untuk keamanan optimal',
-          ),
-        ],
+            const SizedBox(height: 24),
+            const Text(
+              'Tips Keamanan',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 12),
+            _buildSecurityTip(
+              Icons.gps_off,
+              'Matikan Mock Location',
+              'Pastikan fitur mock location dinonaktifkan di pengaturan developer',
+            ),
+            _buildSecurityTip(
+              Icons.security,
+              'Jangan Root Device',
+              'Device yang di-root lebih rentan terhadap manipulasi lokasi',
+            ),
+            _buildSecurityTip(
+              Icons.apps,
+              'Hapus Fake GPS Apps',
+              'Uninstall aplikasi fake GPS yang mungkin terinstal',
+            ),
+            _buildSecurityTip(
+              Icons.update,
+              'Update Aplikasi',
+              'Selalu gunakan versi terbaru untuk keamanan optimal',
+            ),
+          ],
+        ),
       ),
     );
   }
