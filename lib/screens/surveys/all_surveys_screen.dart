@@ -78,6 +78,8 @@ class _AllSurveysScreenState extends State<AllSurveysScreen> {
 
   /// Navigate to map for a specific survey
   void _navigateToMap(Survey survey, {RespondentStatus? statusFilter}) {
+    context.read<SurveyProvider>().setSelectedSurvey(survey);
+
     Navigator.push(
       context,
       MaterialPageRoute(

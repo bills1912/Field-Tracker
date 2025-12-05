@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../models/survey.dart';
 import '../../models/survey_stats.dart';
 import '../../models/respondent.dart';
+import '../../providers/survey_provider.dart';
 import '../../services/api_service.dart';
 import '../../providers/network_provider.dart';
 import '../map/survey_map_screen.dart';
@@ -46,6 +47,8 @@ class _SurveyDetailScreenState extends State<SurveyDetailScreen> {
 
   /// Navigate to map with specific filter
   void _navigateToMap({RespondentStatus? statusFilter}) {
+    context.read<SurveyProvider>().setSelectedSurvey(widget.survey);
+
     Navigator.push(
       context,
       MaterialPageRoute(

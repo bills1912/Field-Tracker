@@ -1499,7 +1499,7 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
     if (!launched) {
       try {
         final webUrl = Uri.parse(
-          'https://www.google.com/maps/search/?api=1&query=$lat,$lng',
+          'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=driving',
         );
 
         await launchUrl(
