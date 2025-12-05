@@ -1464,16 +1464,21 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
     final String label = Uri.encodeComponent(respondent.name);
 
     // Try different URL schemes
-    final List<String> urlSchemes = [
-      // Google Maps app with navigation mode
-      'google.navigation:q=$lat,$lng&mode=d',
-      // Google Maps app with location
-      'geo:$lat,$lng?q=$lat,$lng($label)',
-      // Google Maps web URL (fallback)
-      'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=driving',
-      // Comgooglemaps scheme for iOS
-      'comgooglemaps://?daddr=$lat,$lng&directionsmode=driving',
-    ];
+    // URL Schemes yang diprioritaskan untuk "Start Navigation"
+    final List<String> urlSchemes = [];
+
+    if (Theme.of(context).platform == TargetPlatform.android) {
+      urlSchemes.add('google.navigation:q=$lat,$lng&mode=d');
+    }
+
+    // 2. iOS
+    urlSchemes.add('comgooglemaps://?saddr=&daddr=$lat,$lng&directionsmode=driving');
+
+    // 3. iOS: Skema Apple Maps (Native)
+    urlSchemes.add('http://maps.apple.com/?daddr=$lat,$lng&dirflg=d');
+
+    // 4. Fallback: Universal Web Link (Jika aplikasi maps tidak terinstal)
+    urlSchemes.add('https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=driving');
 
     bool launched = false;
 
@@ -1481,11 +1486,7 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
       try {
         final Uri uri = Uri.parse(urlString);
 
-        if (await canLaunchUrl(uri)) {
-          await launchUrl(
-            uri,
-            mode: LaunchMode.externalApplication,
-          );
+        if (await launchUrl(uri, mode: LaunchMode.externalApplication)) {
           launched = true;
           break;
         }
@@ -1496,21 +1497,21 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
     }
 
     // If all schemes failed, try the web URL as last resort
-    if (!launched) {
-      try {
-        final webUrl = Uri.parse(
-          'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=driving',
-        );
-
-        await launchUrl(
-          webUrl,
-          mode: LaunchMode.externalApplication,
-        );
-        launched = true;
-      } catch (e) {
-        print('Failed to launch web URL: $e');
-      }
-    }
+    // if (!launched) {
+    //   try {
+    //     final webUrl = Uri.parse(
+    //       'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=driving',
+    //     );
+    //
+    //     await launchUrl(
+    //       webUrl,
+    //       mode: LaunchMode.externalApplication,
+    //     );
+    //     launched = true;
+    //   } catch (e) {
+    //     print('Failed to launch web URL: $e');
+    //   }
+    // }
 
     if (!launched && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
