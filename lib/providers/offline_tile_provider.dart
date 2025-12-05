@@ -159,7 +159,8 @@ class OfflineMapHelper {
         enableCaching: enableCaching,
       ),
       userAgentPackageName: userAgentPackageName,
-      maxZoom: 19,
+      maxNativeZoom: 19,
+      maxZoom: 22,
       errorTileCallback: (tile, error, stackTrace) {
         debugPrint('Tile error at ${tile.coordinates}: $error');
       },

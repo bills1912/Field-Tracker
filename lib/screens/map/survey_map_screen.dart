@@ -1496,23 +1496,6 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
       }
     }
 
-    // If all schemes failed, try the web URL as last resort
-    // if (!launched) {
-    //   try {
-    //     final webUrl = Uri.parse(
-    //       'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=driving',
-    //     );
-    //
-    //     await launchUrl(
-    //       webUrl,
-    //       mode: LaunchMode.externalApplication,
-    //     );
-    //     launched = true;
-    //   } catch (e) {
-    //     print('Failed to launch web URL: $e');
-    //   }
-    // }
-
     if (!launched && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -2057,24 +2040,26 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
         children: [
           if (_isFabOpen) ...[
             // GeoJSON Region Selector - Only show if GeoJSON is available
-            _buildMiniFab(
-              heroTag: 'add_mode_toggle',
-              backgroundColor: _isAddMode ? Colors.purple : Colors.white,
-              onPressed: () {
-                setState(() {
-                  _isAddMode = !_isAddMode;
-                  _newRespondentLocation = null; // Reset titik saat toggle
-                  if (_isAddMode) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Mode Tambah Aktif. Ketuk lokasi di peta.')),
-                    );
-                  }
-                });
-              },
-              icon: _isAddMode ? Icons.close : Icons.person_add,
-              iconColor: _isAddMode ? Colors.white : Colors.purple,
-            ),
-            const SizedBox(height: 8),
+            if (user?.role.name == 'enumerator') ...[
+              _buildMiniFab(
+                heroTag: 'add_mode_toggle',
+                backgroundColor: _isAddMode ? Colors.purple : Colors.white,
+                onPressed: () {
+                  setState(() {
+                    _isAddMode = !_isAddMode;
+                    _newRespondentLocation = null; // Reset titik saat toggle
+                    if (_isAddMode) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Mode Tambah Aktif. Ketuk lokasi di peta.')),
+                      );
+                    }
+                  });
+                },
+                icon: _isAddMode ? Icons.close : Icons.person_add,
+                iconColor: _isAddMode ? Colors.white : Colors.purple,
+              ),
+              const SizedBox(height: 8),
+            ],
             if (widget.survey.geojsonPath != null && _availableRegions.isNotEmpty)
               _buildMiniFab(
                 heroTag: 'region_selector',
@@ -2326,7 +2311,7 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
                 ? LatLng(_myPosition!.latitude, _myPosition!.longitude)
                 : const LatLng(-6.2088, 106.8456),
             zoom: 13,
-            maxZoom: 18,
+            maxZoom: 20,
             minZoom: 5,
             onTap: (tapPosition, point) {
               if (_isAddMode) {
