@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import '../models/survey.dart';
+import '../models/user.dart';
 import '../models/survey_stats.dart';
 import '../services/api_service.dart';
 import '../services/storage_service.dart';
@@ -100,7 +101,32 @@ class SurveyProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      _surveys = await ApiService.instance.getSurveys();
+      // 1. Ambil semua survei mentah dari API
+      final rawSurveys = await ApiService.instance.getSurveys();
+
+      // 2. Ambil user yang sedang login untuk pengecekan role & ID
+      final user = await StorageService.instance.getUser();
+
+      // 3. Lakukan Filtering
+      if (user != null) {
+        if (user.role == UserRole.admin) {
+          // Admin melihat semua survei
+          _surveys = rawSurveys;
+        } else {
+          // Filter untuk Supervisor dan Enumerator
+          _surveys = rawSurveys.where((survey) {
+            if (user.role == UserRole.supervisor) {
+              return survey.supervisorIds.contains(user.id);
+            } else {
+              // Enumerator: Hanya jika ID mereka ada di list enumerator
+              return survey.enumeratorIds.contains(user.id);
+            }
+          }).toList();
+        }
+      } else {
+        // Fallback jika user null (misal session expired)
+        _surveys = [];
+      }
 
       // Load stats for each survey
       for (var survey in _surveys) {
