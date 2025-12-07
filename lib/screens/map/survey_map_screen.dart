@@ -170,7 +170,7 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
       if (widget.survey.allocations.isNotEmpty && user != null) {
 
         // Jika Admin, tampilkan semua. Jika bukan, filter.
-        if (user.role != 'admin') { // Sesuaikan string role admin Anda
+        if (user.role.name != 'admin') { // Sesuaikan string role admin Anda
 
           // Ambil daftar nama region yang ditugaskan ke user ini
           _myAllocatedRegions = widget.survey.allocations
@@ -220,9 +220,10 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
 
           // Ambil field Code (PCODE) untuk disimpan di controller nanti
           // Gunakan field custom dari survey config, atau default 'ADM3_PCODE'
-          final String pcode = props[widget.survey.geojsonUniqueCodeField ?? 'ADM3_PCODE']?.toString()
+          final String pcode = props[widget.survey.geojsonFilterField ?? 'ADM3_PCODE']?.toString()
               ?? props['region_code']?.toString()
               ?? '';
+          debugPrint('🎯 pcode: $pcode');
 
           if (pcode.isEmpty) continue;
 
@@ -728,7 +729,7 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
 
         // Field nama (default ADM3_EN) dan field code (default ADM3_PCODE)
         final nameField = widget.survey.geojsonFilterField ?? 'ADM3_EN';
-        final codeField = widget.survey.geojsonUniqueCodeField ?? 'ADM3_PCODE';
+        final codeField = widget.survey.geojsonFilterField ?? 'ADM3_PCODE';
 
         for (var feature in features) {
           final props = feature['properties'];
