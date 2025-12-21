@@ -1,3 +1,4 @@
+import 'package:field_tracker/screens/chat/chat_router.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
@@ -21,7 +22,7 @@ class _MainScreenState extends State<MainScreen> {
   // UPDATED: Removed MapScreen from the list - Map is now accessed per survey
   final List<Widget> _screens = [
     const SurveysListScreen(),
-    const ChatScreen(), // Restored ChatScreen
+    const ChatRouter(), // Restored ChatScreen
     const FraudDetectionScreen(),
     const ProfileScreen(),
   ];

@@ -7,7 +7,7 @@ import '../../providers/fraud_detection_provider.dart';
 import '../../providers/network_provider.dart';
 import '../../services/api_service.dart';
 import '../surveys/surveys_list_screen.dart';
-import '../chat/chat_screen.dart';
+import '../chat/chat_router.dart';
 import '../profile/profile_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -25,7 +25,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final List<Widget> _screens = [
     const SurveysListScreen(),
     // const MapScreen(),
-    const ChatScreen(),
+    const ChatRouter(),
     const ProfileScreen(),
   ];
 

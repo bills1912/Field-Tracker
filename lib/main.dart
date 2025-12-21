@@ -1,3 +1,4 @@
+import 'package:field_tracker/screens/chat/chat_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -282,6 +283,7 @@ class MyApp extends StatelessWidget {
       '/login': (context) => const LoginScreen(),
       '/home': (context) => const HomeScreen(),
       '/add-respondent': (context) => const AddRespondentScreen(),
+      '/chat': (context) => const ChatRouter(),
     };
   }
 

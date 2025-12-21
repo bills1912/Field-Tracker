@@ -691,12 +691,12 @@ class ApiService {
         throw Exception('Failed to create message: ${response.statusCode}');
       }
     } catch (e) {
-      // Save locally for offline
       await StorageService.instance.savePendingMessage(message);
       throw Exception('Failed to create message: $e');
     }
   }
 
+  /// Get messages for current user
   Future<List<Message>> getMessages({String? messageType}) async {
     try {
       final headers = await _getHeaders();
@@ -715,14 +715,103 @@ class ApiService {
         final List<dynamic> data = json.decode(response.body);
         return data.map((json) => Message.fromJson(json)).toList();
       } else {
-        throw Exception('Failed to load messages: ${response.statusCode}');
+        throw Exception('Failed to load messages');
       }
     } catch (e) {
-      // Return pending messages if offline
       return await StorageService.instance.getPendingMessages();
     }
   }
 
+  /// Get message history with pagination
+  Future<Map<String, dynamic>> getMessageHistory({
+    String? conversationId,
+    String? userId,
+    String? messageType,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    try {
+      final headers = await _getHeaders();
+      final queryParams = <String, String>{
+        'limit': limit.toString(),
+        'offset': offset.toString(),
+      };
+
+      if (conversationId != null) queryParams['conversation_id'] = conversationId;
+      if (userId != null) queryParams['user_id'] = userId;
+      if (messageType != null) queryParams['message_type'] = messageType;
+
+      final uri = Uri.parse('$baseUrl/messages/history').replace(queryParameters: queryParams);
+      final response = await http.get(uri, headers: headers).timeout(_defaultTimeout);
+
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return {
+          'messages': (data['messages'] as List).map((json) => Message.fromJson(json)).toList(),
+          'total': data['total'],
+          'limit': data['limit'],
+          'offset': data['offset'],
+        };
+      } else {
+        throw Exception('Failed to load message history');
+      }
+    } catch (e) {
+      throw Exception('Failed to load message history: $e');
+    }
+  }
+
+  /// Update/Edit a message
+  Future<Message> updateMessage(String messageId, String content) async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http.put(
+        Uri.parse('$baseUrl/messages/$messageId'),
+        headers: headers,
+        body: json.encode({'content': content}),
+      ).timeout(_defaultTimeout);
+
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
+
+      if (response.statusCode == 200) {
+        return Message.fromJson(json.decode(response.body));
+      } else {
+        final errorBody = json.decode(response.body);
+        throw Exception(errorBody['detail'] ?? 'Failed to update message');
+      }
+    } catch (e) {
+      throw Exception('Failed to update message: \$e');
+    }
+  }
+
+  /// Delete a message (soft delete)
+  Future<bool> deleteMessage(String messageId) async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http.delete(
+        Uri.parse('$baseUrl/messages/$messageId'),
+        headers: headers,
+      ).timeout(_defaultTimeout);
+
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
+
+      return response.statusCode == 200;
+    } catch (e) {
+      throw Exception('Failed to delete message: $e');
+    }
+  }
+
+  /// Respond to a message (Supervisor/Admin)
   Future<Message> respondToMessage(String messageId, String responseText) async {
     try {
       final headers = await _getHeaders();
@@ -740,10 +829,236 @@ class ApiService {
       if (response.statusCode == 200) {
         return Message.fromJson(json.decode(response.body));
       } else {
-        throw Exception('Failed to respond to message: ${response.statusCode}');
+        throw Exception('Failed to respond to message');
       }
     } catch (e) {
       throw Exception('Failed to respond to message: $e');
+    }
+  }
+
+  /// Mark message as read
+  Future<bool> markMessageRead(String messageId) async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http.put(
+        Uri.parse('$baseUrl/messages/$messageId/read'),
+        headers: headers,
+      ).timeout(_shortTimeout);
+
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('Failed to mark message as read: $e');
+      return false;
+    }
+  }
+
+  // ==================== SUPERVISOR MESSAGE APIs ====================
+
+  /// Get all conversations for supervisor
+  Future<List<ConversationPreview>> getSupervisorConversations() async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http.get(
+        Uri.parse('$baseUrl/supervisor/conversations'),
+        headers: headers,
+      ).timeout(_defaultTimeout);
+
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        return data.map((json) => ConversationPreview.fromJson(json)).toList();
+      } else {
+        throw Exception('Failed to load conversations');
+      }
+    } catch (e) {
+      throw Exception('Failed to load conversations: $e');
+    }
+  }
+
+  /// Get messages from specific enumerator (Supervisor view)
+  Future<Map<String, dynamic>> getEnumeratorMessages(
+      String enumeratorId, {
+        int limit = 50,
+        int offset = 0,
+      }) async {
+    try {
+      final headers = await _getHeaders();
+      final queryParams = {'limit': limit.toString(), 'offset': offset.toString()};
+      final uri = Uri.parse('$baseUrl/supervisor/messages/$enumeratorId').replace(queryParameters: queryParams);
+
+      final response = await http.get(uri, headers: headers).timeout(_defaultTimeout);
+
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return {
+          'enumerator': data['enumerator'],
+          'messages': (data['messages'] as List).map((json) => Message.fromJson(json)).toList(),
+          'total': data['total'],
+        };
+      } else {
+        throw Exception('Failed to load enumerator messages');
+      }
+    } catch (e) {
+      throw Exception('Failed to load enumerator messages: $e');
+    }
+  }
+
+  /// Get all unanswered messages (Supervisor view)
+  Future<List<Message>> getUnansweredMessages() async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http.get(
+        Uri.parse('$baseUrl/supervisor/unanswered'),
+        headers: headers,
+      ).timeout(_defaultTimeout);
+
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        return data.map((json) => Message.fromJson(json)).toList();
+      } else {
+        throw Exception('Failed to load unanswered messages');
+      }
+    } catch (e) {
+      throw Exception('Failed to load unanswered messages: $e');
+    }
+  }
+
+  // ==================== ADMIN MESSAGE APIs ====================
+
+  /// Get all messages (Admin only)
+  Future<Map<String, dynamic>> getAllMessages({
+    String? messageType,
+    int limit = 100,
+    int offset = 0,
+  }) async {
+    try {
+      final headers = await _getHeaders();
+      final queryParams = <String, String>{
+        'limit': limit.toString(),
+        'offset': offset.toString(),
+      };
+      if (messageType != null) queryParams['message_type'] = messageType;
+
+      final uri = Uri.parse('$baseUrl/admin/all-messages').replace(queryParameters: queryParams);
+      final response = await http.get(uri, headers: headers).timeout(_defaultTimeout);
+
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return {
+          'messages': (data['messages'] as List).map((json) => Message.fromJson(json)).toList(),
+          'total': data['total'],
+          'limit': data['limit'],
+          'offset': data['offset'],
+        };
+      } else {
+        throw Exception('Failed to load all messages');
+      }
+    } catch (e) {
+      throw Exception('Failed to load all messages: $e');
+    }
+  }
+
+  /// Get chat statistics (Admin only)
+  Future<ChatStats> getChatStats() async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http.get(
+        Uri.parse('$baseUrl/admin/chat-stats'),
+        headers: headers,
+      ).timeout(_defaultTimeout);
+
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
+
+      if (response.statusCode == 200) {
+        return ChatStats.fromJson(json.decode(response.body));
+      } else {
+        throw Exception('Failed to load chat stats');
+      }
+    } catch (e) {
+      throw Exception('Failed to load chat stats: $e');
+    }
+  }
+
+  /// Send broadcast message (Admin only)
+  Future<Map<String, dynamic>> sendBroadcastMessage({
+    required String content,
+    List<String> targetRoles = const ['enumerator', 'supervisor'],
+    String? surveyId,
+  }) async {
+    try {
+      final headers = await _getHeaders();
+      final body = {
+        'content': content,
+        'target_roles': targetRoles,
+        if (surveyId != null) 'survey_id': surveyId,
+      };
+
+      final response = await http.post(
+        Uri.parse('$baseUrl/admin/broadcast'),
+        headers: headers,
+        body: json.encode(body),
+      ).timeout(_defaultTimeout);
+
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        throw Exception('Failed to send broadcast');
+      }
+    } catch (e) {
+      throw Exception('Failed to send broadcast: $e');
+    }
+  }
+
+  /// Get broadcast messages for current user
+  Future<List<Message>> getBroadcastMessages({int limit = 20}) async {
+    try {
+      final headers = await _getHeaders();
+      final uri = Uri.parse('$baseUrl/messages/broadcasts').replace(
+        queryParameters: {'limit': limit.toString()},
+      );
+
+      final response = await http.get(uri, headers: headers).timeout(_defaultTimeout);
+
+      if (response.statusCode == 401) {
+        _handleAuthError(response);
+        throw Exception('Session expired');
+      }
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        return data.map((json) => Message.fromJson(json)).toList();
+      } else {
+        throw Exception('Failed to load broadcasts');
+      }
+    } catch (e) {
+      throw Exception('Failed to load broadcasts: $e');
     }
   }
 
