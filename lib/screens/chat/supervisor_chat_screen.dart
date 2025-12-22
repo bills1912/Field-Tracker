@@ -545,12 +545,17 @@ class _SupervisorChatScreenState extends State<SupervisorChatScreen> with Single
     ).then((_) => _loadData());
   }
 
+  // ==================== FIXED: _showQuickResponseDialog ====================
   void _showQuickResponseDialog(Message message) {
     final controller = TextEditingController();
 
+    // PENTING: Simpan reference ke ScaffoldMessenger SEBELUM dialog dibuka
+    // Ini memastikan kita menggunakan context dari SupervisorChatScreen, bukan dari dialog
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Balas Pesan'),
         content: SingleChildScrollView(
           child: Column(
@@ -597,7 +602,7 @@ class _SupervisorChatScreenState extends State<SupervisorChatScreen> with Single
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Batal'),
           ),
           ElevatedButton.icon(
@@ -606,19 +611,22 @@ class _SupervisorChatScreenState extends State<SupervisorChatScreen> with Single
             onPressed: () async {
               final text = controller.text.trim();
               if (text.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
+                // Gunakan dialogContext untuk snackbar validasi di dalam dialog
+                ScaffoldMessenger.of(dialogContext).showSnackBar(
                   const SnackBar(content: Text('Jawaban tidak boleh kosong')),
                 );
                 return;
               }
 
-              Navigator.pop(context);
-
+              // Simpan state sebelum modifikasi untuk rollback jika error
               final previousUnanswered = List<Message>.from(_unansweredMessages);
 
+              // Tutup dialog DULU sebelum melakukan operasi async
+              Navigator.pop(dialogContext);
+
+              // Update UI secara optimistic (langsung update tanpa menunggu API)
               setState(() {
                 // A. Hapus dari list 'Belum Dijawab'
-                // PENTING: Gunakan List.from agar Flutter mendeteksi perubahan referensi list
                 _unansweredMessages = List.from(_unansweredMessages)..removeWhere((m) => m.id == message.id);
 
                 // B. Update di list 'Semua Chat' (ubah status jadi answered)
@@ -631,43 +639,51 @@ class _SupervisorChatScreenState extends State<SupervisorChatScreen> with Single
                 }
 
                 // C. Update Counter/Badge di Tab 'Enumerator' (Conversations)
-                // Cari conversation milik pengirim ini
                 final convIndex = _conversations.indexWhere((c) => c['enumerator'] == message.senderId);
                 if (convIndex != -1) {
-                  // Kurangi jumlah unanswered_count secara manual
                   int currentCount = _conversations[convIndex]['unanswered_count'] ?? 0;
                   if (currentCount > 0) {
                     _conversations[convIndex]['unanswered_count'] = currentCount - 1;
-
-                    // Update juga snippet pesan terakhir agar terlihat sudah dibalas
-                    _conversations[convIndex]['latest_message'] = _allMessages[indexAll];
+                    final indexAll = _allMessages.indexWhere((m) => m.id == message.id);
+                    if (indexAll != -1) {
+                      _conversations[convIndex]['latest_message'] = _allMessages[indexAll];
+                    }
                   }
                 }
               });
 
               try {
+                // Panggil API untuk menyimpan response
                 await ApiService.instance.respondToMessage(
                   message.id!,
                   text,
                 );
 
+                // Sukses - tampilkan snackbar menggunakan scaffoldMessenger yang sudah disimpan
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  scaffoldMessenger.showSnackBar(
                     const SnackBar(
-                      content: Text('Jawaban terkirim!'),
+                      content: Text('Jawaban terkirim! ✅'),
                       backgroundColor: Colors.green,
-                      duration: Duration(milliseconds: 1000), // Durasi pendek saja
+                      duration: Duration(seconds: 2),
                     ),
                   );
                 }
 
               } catch (e) {
+                // Error - rollback UI dan tampilkan error
                 if (mounted) {
                   setState(() {
                     _unansweredMessages = previousUnanswered;
+                    // Juga perlu rollback _allMessages dan _conversations jika diperlukan
                   });
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Gagal: $e'), backgroundColor: Colors.red),
+
+                  scaffoldMessenger.showSnackBar(
+                    SnackBar(
+                      content: Text('Gagal mengirim jawaban: $e'),
+                      backgroundColor: Colors.red,
+                      duration: const Duration(seconds: 3),
+                    ),
                   );
                 }
               }
