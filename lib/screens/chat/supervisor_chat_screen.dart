@@ -36,10 +36,12 @@ class _SupervisorChatScreenState extends State<SupervisorChatScreen> with Single
   }
 
   Future<void> _loadData() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+    if (_conversations.isEmpty && _unansweredMessages.isEmpty) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+    }
 
     try {
       debugPrint('📥 Loading supervisor chat data...');
@@ -77,13 +79,17 @@ class _SupervisorChatScreenState extends State<SupervisorChatScreen> with Single
         debugPrint('⚠️ Error loading all messages: $e');
       }
 
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     } catch (e) {
       debugPrint('❌ Error loading data: $e');
-      setState(() {
-        _isLoading = false;
-        _errorMessage = e.toString();
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = e.toString();
+        });
+      }
     }
   }
 
@@ -225,10 +231,7 @@ class _SupervisorChatScreenState extends State<SupervisorChatScreen> with Single
       child: ListView.builder(
         padding: const EdgeInsets.all(8),
         itemCount: _unansweredMessages.length,
-        itemBuilder: (context, index) {
-          final message = _unansweredMessages[index];
-          return _buildUnansweredMessageTile(message);
-        },
+        itemBuilder: (context, index) => _buildUnansweredMessageTile(_unansweredMessages[index]),
       ),
     );
   }
@@ -601,7 +604,8 @@ class _SupervisorChatScreenState extends State<SupervisorChatScreen> with Single
             icon: const Icon(Icons.send, size: 18),
             label: const Text('Kirim'),
             onPressed: () async {
-              if (controller.text.trim().isEmpty) {
+              final text = controller.text.trim();
+              if (text.isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Jawaban tidak boleh kosong')),
                 );
@@ -610,24 +614,58 @@ class _SupervisorChatScreenState extends State<SupervisorChatScreen> with Single
 
               Navigator.pop(context);
 
+              final previousUnanswered = List<Message>.from(_unansweredMessages);
+
+              setState(() {
+                // A. Hapus dari list 'Belum Dijawab'
+                // PENTING: Gunakan List.from agar Flutter mendeteksi perubahan referensi list
+                _unansweredMessages = List.from(_unansweredMessages)..removeWhere((m) => m.id == message.id);
+
+                // B. Update di list 'Semua Chat' (ubah status jadi answered)
+                final indexAll = _allMessages.indexWhere((m) => m.id == message.id);
+                if (indexAll != -1) {
+                  _allMessages[indexAll] = _allMessages[indexAll].copyWith(
+                    response: text,
+                    isAnswered: true,
+                  );
+                }
+
+                // C. Update Counter/Badge di Tab 'Enumerator' (Conversations)
+                // Cari conversation milik pengirim ini
+                final convIndex = _conversations.indexWhere((c) => c['enumerator'] == message.senderId);
+                if (convIndex != -1) {
+                  // Kurangi jumlah unanswered_count secara manual
+                  int currentCount = _conversations[convIndex]['unanswered_count'] ?? 0;
+                  if (currentCount > 0) {
+                    _conversations[convIndex]['unanswered_count'] = currentCount - 1;
+
+                    // Update juga snippet pesan terakhir agar terlihat sudah dibalas
+                    _conversations[convIndex]['latest_message'] = _allMessages[indexAll];
+                  }
+                }
+              });
+
               try {
                 await ApiService.instance.respondToMessage(
                   message.id!,
-                  controller.text.trim(),
+                  text,
                 );
 
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Jawaban terkirim! ✅'),
+                      content: Text('Jawaban terkirim!'),
                       backgroundColor: Colors.green,
+                      duration: Duration(milliseconds: 1000), // Durasi pendek saja
                     ),
                   );
                 }
 
-                _loadData();
               } catch (e) {
                 if (mounted) {
+                  setState(() {
+                    _unansweredMessages = previousUnanswered;
+                  });
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Gagal: $e'), backgroundColor: Colors.red),
                   );
@@ -664,6 +702,8 @@ class _EnumeratorChatDetailScreenState extends State<EnumeratorChatDetailScreen>
   List<Message> _messages = [];
   bool _isLoading = true;
   Message? _replyingTo;
+
+  bool _hasChanges = false;
 
   @override
   void initState() {
@@ -726,11 +766,14 @@ class _EnumeratorChatDetailScreenState extends State<EnumeratorChatDetailScreen>
           );
         }
         _replyingTo = null;
+        _hasChanges = true;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Jawaban terkirim! ✅'), backgroundColor: Colors.green),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Jawaban terkirim! ✅'), backgroundColor: Colors.green, duration: Duration(seconds: 1)),
+        );
+      }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Gagal: $e'), backgroundColor: Colors.red),
@@ -738,57 +781,68 @@ class _EnumeratorChatDetailScreenState extends State<EnumeratorChatDetailScreen>
     }
   }
 
+  void _onBack() {
+    Navigator.pop(context, _hasChanges);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(widget.enumeratorName),
-            Text(
-              'Enumerator',
-              style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.8)),
+    return PopScope(
+        canPop: false,
+        onPopInvoked: (didPop) {
+          if (didPop) return;
+          _onBack();
+        },
+        child:Scaffold(
+          appBar: AppBar(
+            title: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(widget.enumeratorName),
+                Text(
+                  'Enumerator',
+                  style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.8)),
+                ),
+              ],
             ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadMessages,
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _messages.isEmpty
-                ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.chat_bubble_outline, size: 64, color: Colors.grey[300]),
-                  const SizedBox(height: 16),
-                  Text('Belum ada pesan', style: TextStyle(color: Colors.grey[600])),
-                ],
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.refresh),
+                onPressed: _loadMessages,
               ),
-            )
-                : RefreshIndicator(
-              onRefresh: _loadMessages,
-              child: ListView.builder(
-                controller: _scrollController,
-                reverse: true,
-                padding: const EdgeInsets.all(16),
-                itemCount: _messages.length,
-                itemBuilder: (context, index) => _buildMessageItem(_messages[index]),
-              ),
-            ),
+            ],
           ),
-          _buildResponseInput(),
-        ],
-      ),
+          body: Column(
+            children: [
+              Expanded(
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _messages.isEmpty
+                    ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.chat_bubble_outline, size: 64, color: Colors.grey[300]),
+                      const SizedBox(height: 16),
+                      Text('Belum ada pesan', style: TextStyle(color: Colors.grey[600])),
+                    ],
+                  ),
+                )
+                    : RefreshIndicator(
+                  onRefresh: _loadMessages,
+                  child: ListView.builder(
+                    controller: _scrollController,
+                    reverse: true,
+                    padding: const EdgeInsets.all(16),
+                    itemCount: _messages.length,
+                    itemBuilder: (context, index) => _buildMessageItem(_messages[index]),
+                  ),
+                ),
+              ),
+              _buildResponseInput(),
+            ],
+          ),
+        )
     );
   }
 
