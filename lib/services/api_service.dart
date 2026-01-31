@@ -19,7 +19,7 @@ import '../screens/auth/onboarding_screen.dart';
 
 /// API Service dengan dukungan offline-first
 class ApiService {
-  static const String baseUrl = 'https://survey-enum-tracker-1.onrender.com/api';
+  static const String baseUrl = 'https://survey-enum-tracker-production.up.railway.app/api';
 
   static ApiService? _instance;
   static ApiService get instance => _instance ??= ApiService._();
