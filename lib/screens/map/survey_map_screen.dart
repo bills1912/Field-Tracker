@@ -19,6 +19,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../../providers/offline_tile_provider.dart';
 import '../../services/storage_service.dart';
+import '../../widgets/fasih_launch_button.dart';
 
 enum BaseMapType {
   openStreetMap,
@@ -48,13 +49,14 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
   bool _isLoading = true;
   Position? _myPosition;
   String _viewMode = 'map'; // 'map' or 'list'
-  BaseMapType _currentBaseMap = BaseMapType.openStreetMap;
+  BaseMapType _currentBaseMap = BaseMapType.googleHybrid;
   RespondentStatus? _currentFilter;
   bool _isFabOpen = false;
   final Map<String, String> _regionPcodes = {};
   List<Respondent> _masterRespondentsList = []; // Menyimpan semua data dari API
   String? _cachedGeoJsonString; // Menyimpan text file GeoJSON
   List<String> _myAllocatedRegions = [];
+  final Map<String, RespondentStatus> _localStatusOverrides = {};
 
   // Navigation state
   bool _isNavigating = false;
@@ -1213,7 +1215,7 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
         return _googleHybridUrl;
       case BaseMapType.openStreetMap:
       default:
-        return _openStreetMapUrl;
+        return _googleHybridUrl;
     }
   }
 
@@ -2558,6 +2560,13 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
               label: const Text('Tampilkan Semua'),
               onPressed: () => _setFilter(null),
             ),
+            // const SizedBox(height: 6),
+            // FasihLaunchButton(
+            //   respondent: respondent,
+            //   compact: true,
+            //   onStatusChanged: (newStatus) =>
+            //       _onRespondentStatusChanged(respondent, newStatus),
+            // ),
           ],
         ),
       );
@@ -2802,22 +2811,27 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 24),
                 const Text(
-                  'Actions',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  'Pendataan',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 12),
+                FasihLaunchButton(
+                  respondent: respondent,
+                  onStatusChanged: (newStatus) {
+                    Navigator.pop(context); // tutup bottom sheet
+                    _onRespondentStatusChanged(respondent, newStatus);
+                  },
+                ),
+                const SizedBox(height: 10),
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton.icon(
-                    icon: const Icon(Icons.edit),
-                    label: const Text('Update Status'),
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('Update Status Manual'),
                     style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
                     onPressed: () {
                       Navigator.pop(context);
@@ -2900,6 +2914,34 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
         ),
       ),
     );
+  }
+
+  void _onRespondentStatusChanged(
+      Respondent respondent,
+      RespondentStatus newStatus,
+      ) {
+    setState(() {
+      _localStatusOverrides[respondent.id] = newStatus;
+      final idx = _allRespondents.indexWhere((r) => r.id == respondent.id);
+      if (idx != -1) {
+        _allRespondents[idx] = Respondent(
+          id: respondent.id,
+          name: respondent.name,
+          phone: respondent.phone,
+          address: respondent.address,
+          latitude: respondent.latitude,
+          longitude: respondent.longitude,
+          status: newStatus,
+          surveyId: respondent.surveyId,
+          enumeratorId: respondent.enumeratorId,
+          surveyData: respondent.surveyData,
+          createdAt: respondent.createdAt,
+          updatedAt: DateTime.now(),
+          region_code: respondent.region_code,
+        );
+        _applyFilter();
+      }
+    });
   }
 
   void _showLegend() {
