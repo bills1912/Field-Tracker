@@ -2560,13 +2560,6 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
               label: const Text('Tampilkan Semua'),
               onPressed: () => _setFilter(null),
             ),
-            // const SizedBox(height: 6),
-            // FasihLaunchButton(
-            //   respondent: respondent,
-            //   compact: true,
-            //   onStatusChanged: (newStatus) =>
-            //       _onRespondentStatusChanged(respondent, newStatus),
-            // ),
           ],
         ),
       );
@@ -2590,76 +2583,107 @@ class _SurveyMapScreenState extends State<SurveyMapScreen> {
             borderRadius: BorderRadius.circular(12),
             child: Padding(
               padding: const EdgeInsets.all(12),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  CircleAvatar(
-                    backgroundColor: _getMarkerColor(respondent.status),
-                    radius: 24,
-                    child: const Icon(Icons.person, color: Colors.white),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          respondent.name,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: _getMarkerColor(respondent.status)
-                                .withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            respondent.status.name
-                                .replaceAll('_', ' ')
-                                .toUpperCase(),
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: _getMarkerColor(respondent.status),
-                              fontWeight: FontWeight.w600,
+                  // ── Baris atas: avatar + info + tombol navigasi ──
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      CircleAvatar(
+                        backgroundColor: _getMarkerColor(respondent.status),
+                        radius: 22,
+                        child: const Icon(Icons.person,
+                            color: Colors.white, size: 20),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              respondent.name,
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
-                          ),
-                        ),
-                        if (_myPosition != null) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            _formatDistance(_calculateDistance(
-                              _myPosition!.latitude,
-                              _myPosition!.longitude,
-                              respondent.latitude,
-                              respondent.longitude,
-                            )),
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey,
+                            const SizedBox(height: 4),
+                            // Status chip
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: _getMarkerColor(respondent.status)
+                                    .withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                respondent.status.name
+                                    .replaceAll('_', ' ')
+                                    .toUpperCase(),
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: _getMarkerColor(respondent.status),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                             ),
-                          ),
-                        ],
-                      ],
-                    ),
+                            if (_myPosition != null) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                _formatDistance(_calculateDistance(
+                                  _myPosition!.latitude,
+                                  _myPosition!.longitude,
+                                  respondent.latitude,
+                                  respondent.longitude,
+                                )),
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      // Tombol navigasi
+                      IconButton(
+                        icon: const Icon(Icons.navigation,
+                            color: Color(0xFF2196F3)),
+                        tooltip: 'Navigate in App',
+                        onPressed: () => _startInAppNavigation(respondent),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                            minWidth: 36, minHeight: 36),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.directions,
+                            color: Color(0xFF4CAF50)),
+                        tooltip: 'Open in Google Maps',
+                        onPressed: () =>
+                            _openGoogleMapsNavigation(respondent),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                            minWidth: 36, minHeight: 36),
+                      ),
+                    ],
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.navigation,
-                        color: Color(0xFF2196F3)),
-                    tooltip: 'Navigate in App',
-                    onPressed: () => _startInAppNavigation(respondent),
-                  ),
-                  IconButton(
-                    icon:
-                    const Icon(Icons.directions, color: Color(0xFF4CAF50)),
-                    tooltip: 'Open in Google Maps',
-                    onPressed: () => _openGoogleMapsNavigation(respondent),
+
+                  // ── Divider tipis ──
+                  const SizedBox(height: 10),
+                  Divider(
+                      height: 1, thickness: 0.5, color: Colors.grey[200]),
+                  const SizedBox(height: 10),
+
+                  // ── Baris bawah: tombol Fasih (full width) ──
+                  FasihLaunchButton(
+                    respondent: respondent,
+                    compact: true,
+                    onStatusChanged: (newStatus) =>
+                        _onRespondentStatusChanged(respondent, newStatus),
                   ),
                 ],
               ),
