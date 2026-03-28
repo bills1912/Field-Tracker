@@ -10,6 +10,7 @@ import 'services/storage_service.dart';
 import 'services/location_service.dart';
 import 'services/sensor_collector_service.dart';
 import 'services/sync_service.dart';
+import 'services/session_expiry_service.dart';
 
 // Providers
 import 'providers/auth_provider.dart';
@@ -17,6 +18,7 @@ import 'providers/survey_provider.dart';
 import 'providers/location_provider.dart';
 import 'providers/network_provider.dart';
 import 'providers/fraud_detection_provider.dart';
+import 'providers/session_expiry_provider.dart';
 
 // Screens
 import 'screens/splash_screen.dart';
@@ -53,6 +55,9 @@ Future<void> _initializeServices() async {
       callbackDispatcher,
       isInDebugMode: false,
     );
+
+    final sessionProvider = SessionExpiryProvider();
+    await sessionProvider.initialize();
 
     debugPrint('✅ All core services initialized successfully');
   } catch (e) {
@@ -97,6 +102,15 @@ class MyApp extends StatelessWidget {
               fraudDetectionProvider: fraudProvider,
             );
             return authProvider ?? AuthProvider();
+          },
+        ),
+        ChangeNotifierProvider<SessionExpiryProvider>(
+          create: (_) {
+            final p = SessionExpiryProvider();
+            // initialize() sudah dipanggil di _initializeServices,
+            // tapi kita panggil lagi agar provider ini juga punya state terbaru.
+            p.initialize();
+            return p;
           },
         ),
       ],

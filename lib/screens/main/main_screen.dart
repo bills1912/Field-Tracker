@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/network_provider.dart';
 import '../../providers/fraud_detection_provider.dart';
+import '../../providers/session_expiry_provider.dart';        // ← BARU
+import '../../widgets/session_activity_wrapper.dart';         // ← BARU
 import '../surveys/surveys_list_screen.dart';
 import '../chat/chat_screen.dart';
 import '../profile/profile_screen.dart';
@@ -19,10 +21,9 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
 
-  // UPDATED: Removed MapScreen from the list - Map is now accessed per survey
   final List<Widget> _screens = [
     const SurveysListScreen(),
-    const ChatRouter(), // Restored ChatScreen
+    const ChatRouter(),
     const FraudDetectionScreen(),
     const ProfileScreen(),
   ];
@@ -30,167 +31,193 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
-    // Start fraud detection monitoring when screen loads
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeFraudDetection();
     });
   }
 
-  // Initialize fraud detection
   Future<void> _initializeFraudDetection() async {
     try {
       final fraudProvider = context.read<FraudDetectionProvider>();
       await fraudProvider.startMonitoring();
-      debugPrint('✅ Fraud detection monitoring started');
     } catch (e) {
       debugPrint('⚠️ Error starting fraud detection: $e');
     }
   }
 
   void _onTabTapped(int index) {
-    setState(() {
-      _currentIndex = index;
-    });
+    setState(() => _currentIndex = index);
   }
 
   @override
   Widget build(BuildContext context) {
-    final networkProvider = context.watch<NetworkProvider>();
-    final fraudProvider = context.watch<FraudDetectionProvider>();
+    final networkProvider  = context.watch<NetworkProvider>();
+    final fraudProvider    = context.watch<FraudDetectionProvider>();
+    // ── BARU: Listen session expiry state ─────────────────────────────
+    final sessionProvider  = context.watch<SessionExpiryProvider>();
 
-    return Scaffold(
-      body: Stack(
-        children: [
-          // Main content - display current screen
-          IndexedStack(
-            index: _currentIndex,
-            children: _screens,
-          ),
+    // ── BARU: Bungkus seluruh Scaffold dengan SessionActivityWrapper ───
+    return SessionActivityWrapper(
+      child: Scaffold(
+        body: Stack(
+          children: [
+            IndexedStack(
+              index: _currentIndex,
+              children: _screens,
+            ),
 
-          // Online/Offline indicator at the top
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: SafeArea(
-              bottom: false,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                height: networkProvider.isConnected ? 0 : 32,
-                color: networkProvider.isConnected
-                    ? const Color(0xFF4CAF50)
-                    : const Color(0xFFF44336),
-                child: networkProvider.isConnected
-                    ? null
-                    : Center(
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(
-                        Icons.cloud_off,
-                        color: Colors.white,
-                        size: 16,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Offline Mode',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
+            // Offline indicator
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: SafeArea(
+                bottom: false,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  height: networkProvider.isConnected ? 0 : 32,
+                  color: const Color(0xFFF44336),
+                  child: networkProvider.isConnected
+                      ? null
+                      : const Center(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.cloud_off, color: Colors.white, size: 16),
+                        SizedBox(width: 8),
+                        Text(
+                          'Offline Mode',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-        ],
-      ),
 
-      // Bottom Navigation Bar - UPDATED: Removed Map tab
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 8,
-              offset: const Offset(0, -2),
-            ),
+            // ── BARU: Session Warning Banner ──────────────────────────
+            if (sessionProvider.isWarning && !sessionProvider.isExpired)
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: SafeArea(
+                  bottom: false,
+                  child: _SessionWarningStrip(
+                    config: sessionProvider.config,
+                  ),
+                ),
+              ),
           ],
         ),
-        child: BottomNavigationBar(
-          currentIndex: _currentIndex,
-          onTap: _onTabTapped,
-          type: BottomNavigationBarType.fixed,
-          backgroundColor: Colors.white,
-          selectedItemColor: const Color(0xFF2196F3),
-          unselectedItemColor: Colors.grey[600],
-          selectedFontSize: 12,
-          unselectedFontSize: 12,
-          elevation: 0,
-          items: [
-            BottomNavigationBarItem(
-              icon: Icon(
-                _currentIndex == 0 ? Icons.poll : Icons.poll_outlined,
+
+        bottomNavigationBar: Container(
+          decoration: BoxDecoration(
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 8,
+                offset: const Offset(0, -2),
               ),
-              label: 'Surveys',
-            ),
-            // Restored Chat tab
-            BottomNavigationBarItem(
-              icon: Icon(
-                _currentIndex == 1 ? Icons.chat : Icons.chat_outlined,
+            ],
+          ),
+          child: BottomNavigationBar(
+            currentIndex: _currentIndex,
+            onTap: _onTabTapped,
+            type: BottomNavigationBarType.fixed,
+            backgroundColor: Colors.white,
+            selectedItemColor: const Color(0xFF2196F3),
+            unselectedItemColor: Colors.grey[600],
+            selectedFontSize: 12,
+            unselectedFontSize: 12,
+            elevation: 0,
+            items: [
+              BottomNavigationBarItem(
+                icon: Icon(_currentIndex == 0 ? Icons.poll : Icons.poll_outlined),
+                label: 'Surveys',
               ),
-              label: 'Chat',
-            ),
-            // Security/Fraud tab
-            BottomNavigationBarItem(
-              icon: Stack(
-                children: [
-                  Icon(
-                    _currentIndex == 2
-                        ? Icons.security
-                        : Icons.security_outlined,
-                  ),
-                  // Show badge if fraud detected
-                  if (fraudProvider.totalFlagged > 0)
-                    Positioned(
-                      right: 0,
-                      top: 0,
-                      child: Container(
-                        padding: const EdgeInsets.all(2),
-                        decoration: const BoxDecoration(
-                          color: Colors.red,
-                          shape: BoxShape.circle,
-                        ),
-                        constraints: const BoxConstraints(
-                          minWidth: 14,
-                          minHeight: 14,
-                        ),
-                        child: Text(
-                          '${fraudProvider.totalFlagged > 9 ? "9+" : fraudProvider.totalFlagged}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 8,
-                            fontWeight: FontWeight.bold,
+              BottomNavigationBarItem(
+                icon: Icon(_currentIndex == 1 ? Icons.chat : Icons.chat_outlined),
+                label: 'Chat',
+              ),
+              BottomNavigationBarItem(
+                icon: Stack(
+                  children: [
+                    Icon(_currentIndex == 2 ? Icons.security : Icons.security_outlined),
+                    if (fraudProvider.totalFlagged > 0)
+                      Positioned(
+                        right: 0,
+                        top: 0,
+                        child: Container(
+                          padding: const EdgeInsets.all(2),
+                          decoration: const BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
                           ),
-                          textAlign: TextAlign.center,
+                          constraints: const BoxConstraints(
+                            minWidth: 14,
+                            minHeight: 14,
+                          ),
+                          child: Text(
+                            '${fraudProvider.totalFlagged > 9 ? "9+" : fraudProvider.totalFlagged}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 8,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
                         ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
+                label: 'Security',
               ),
-              label: 'Security',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(
-                _currentIndex == 3 ? Icons.person : Icons.person_outline,
+              BottomNavigationBarItem(
+                icon: Icon(_currentIndex == 3 ? Icons.person : Icons.person_outline),
+                label: 'Profile',
               ),
-              label: 'Profile',
-            ),
-          ],
+            ],
+          ),
         ),
+      ),
+    );
+  }
+}
+
+// ── Widget strip warning session ──────────────────────────────────────────
+
+class _SessionWarningStrip extends StatelessWidget {
+  final dynamic config; // SessionExpiryConfig
+
+  const _SessionWarningStrip({required this.config});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      color: const Color(0xFFFF9800),
+      child: Row(
+        children: [
+          const Icon(Icons.access_time, color: Colors.white, size: 16),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text(
+              'Sesi akan berakhir segera. Simpan data Anda.',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

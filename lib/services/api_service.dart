@@ -16,6 +16,7 @@ import 'sensor_collector_service.dart';
 import '../models/sensor_data.dart';
 import '../main.dart';
 import '../screens/auth/onboarding_screen.dart';
+import '../services/session_expiry_service.dart';
 
 /// API Service dengan dukungan offline-first
 class ApiService {
@@ -32,21 +33,38 @@ class ApiService {
 
   void _handleAuthError(http.Response response) {
     if (response.statusCode == 401) {
-      final body = json.decode(response.body);
+      try {
+        final body = json.decode(response.body);
+        final detail = body['detail']?.toString() ?? '';
 
-      // Jika pesan errornya spesifik tentang device lain
-      if (body['detail'].toString().contains('logged in on another device') ||
-          body['detail'].toString().contains('Session expired')) {
+        debugPrint('⛔ API 401: $detail');
 
-        debugPrint('⛔ Session Expired: Logged in elsewhere. Forcing logout...');
+        // Cek apakah ini session expiry dari backend atau sekedar unauthorized
+        final isSessionExpired = detail.contains('Session expired') ||
+            detail.contains('logged in on another device') ||
+            detail.contains('exp') ||
+            detail.contains('invalid token') ||
+            detail.contains('expired');
 
-        // Bersihkan data lokal
-        StorageService.instance.removeToken();
-        StorageService.instance.removeUser();
-        StorageService.instance.clearOnboardingStatus();
-
-        // Paksa pindah ke halaman Login
-        navigatorKey.currentState?.pushNamedAndRemoveUntil('/login', (route) => false);
+        if (isSessionExpired) {
+          // Tampilkan dialog session expired alih-alih langsung navigate
+          SessionExpiryService.instance.forceExpire(
+            reason: 'Token expired: $detail',
+          );
+        } else {
+          // 401 biasa (salah credentials saat login) — navigate ke login
+          StorageService.instance.removeToken();
+          StorageService.instance.removeUser();
+          navigatorKey.currentState?.pushNamedAndRemoveUntil(
+            '/login',
+                (route) => false,
+          );
+        }
+      } catch (e) {
+        // Fallback jika body tidak bisa di-parse
+        SessionExpiryService.instance.forceExpire(
+          reason: 'Unauthorized response (401)',
+        );
       }
     }
   }
