@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user.dart';
 import '../services/api_service.dart';
+import '../services/session_expiry_service.dart'; // 🆕 NEW: Session expiry
 import 'location_provider.dart';
 import 'fraud_detection_provider.dart';
 
@@ -61,6 +62,11 @@ class AuthProvider with ChangeNotifier {
 
           // 🆕 NEW: Auto-start services setelah load dari storage
           // Akan dipanggil dari HomeScreen karena providers belum tersedia di sini
+
+          // 🆕 SESSION EXPIRY: Resume monitoring sesi untuk auto-login
+          // Config sudah tersimpan dari sesi sebelumnya di SharedPreferences
+          SessionExpiryService.instance.startMonitoring();
+          debugPrint('🔁 SessionExpiryService: monitoring resumed (auto-login)');
 
           notifyListeners();
         } else {
@@ -194,6 +200,12 @@ class AuthProvider with ChangeNotifier {
         print('🚀 Auto-starting tracking services...');
         await _autoStartServices();
 
+        // 🆕 SESSION EXPIRY: Ambil config dari survey aktif, lalu mulai monitoring
+        print('🔐 Applying session expiry config...');
+        await _fetchAndApplySessionExpiryConfig();
+        await SessionExpiryService.instance.onLoginSuccess();
+        debugPrint('✅ SessionExpiryService: monitoring started after login');
+
         print('='*60);
         print('🎉 LOGIN SUCCESS');
         print('='*60 + '\n');
@@ -229,6 +241,57 @@ class AuthProvider with ChangeNotifier {
       _isLoading = false;
       notifyListeners();
       return false;
+    }
+  }
+
+  // 🆕 SESSION EXPIRY: Fetch config dari survey aktif user, pilih yg paling ketat
+  Future<void> _fetchAndApplySessionExpiryConfig() async {
+    if (_user == null) return;
+
+    try {
+      final surveys = await ApiService.instance.getSurveys();
+
+      SessionExpiryConfig? strictestConfig;
+      int shortestDuration = 999999;
+
+      for (final survey in surveys) {
+        // Survey model perlu punya field sessionExpiryConfig (dari mapping api_service)
+        final dynamic rawConfig = (survey as dynamic).sessionExpiryConfig;
+        if (rawConfig == null) continue;
+
+        SessionExpiryConfig cfg;
+        if (rawConfig is SessionExpiryConfig) {
+          cfg = rawConfig;
+        } else if (rawConfig is Map<String, dynamic>) {
+          cfg = SessionExpiryConfig.fromJson(rawConfig);
+        } else {
+          continue;
+        }
+
+        // Ambil konfigurasi paling ketat (durasi sesi terpendek, tidak termasuk 0/unlimited)
+        final int effectiveMinutes = cfg.sessionDurationMinutes > 0
+            ? cfg.sessionDurationMinutes
+            : cfg.tokenExpiryMinutes;
+
+        if (effectiveMinutes > 0 && effectiveMinutes < shortestDuration) {
+          shortestDuration = effectiveMinutes;
+          strictestConfig = cfg;
+        }
+      }
+
+      if (strictestConfig != null) {
+        await SessionExpiryService.instance.saveConfig(strictestConfig);
+        debugPrint(
+          '✅ SessionExpiryConfig applied: '
+              '${strictestConfig.sessionDurationMinutes} mnt session, '
+              '${strictestConfig.tokenExpiryMinutes} mnt token',
+        );
+      } else {
+        debugPrint('ℹ️ No session expiry config found in surveys, using defaults');
+      }
+    } catch (e) {
+      // Tidak throw — tetap gunakan config default agar login tetap berjalan
+      debugPrint('⚠️ Failed to fetch session expiry config: $e');
     }
   }
 
@@ -305,6 +368,11 @@ class AuthProvider with ChangeNotifier {
     try {
       print('\n🚪 LOGOUT START');
       print('User: ${_user?.username}');
+
+      // 🆕 SESSION EXPIRY: Hentikan monitoring sesi sebelum clear data
+      SessionExpiryService.instance.stopMonitoring();
+      await SessionExpiryService.instance.resetState();
+      debugPrint('✅ SessionExpiryService stopped & state reset');
 
       // 🆕 NEW: Stop all services before logout
       await _stopAllServices();
